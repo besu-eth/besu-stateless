@@ -1,7 +1,5 @@
 import net.ltgt.gradle.errorprone.CheckSeverity
 
-import java.util.regex.Pattern
-
 /*
  * Copyright Besu Contributors
  *
@@ -17,280 +15,162 @@ import java.util.regex.Pattern
  * SPDX-License-Identifier: Apache-2.0
  */
 
-
-buildscript {
-  repositories {
-    maven {
-      url = uri("https://hyperledger.jfrog.io/hyperledger/besu-maven")
-      content { includeGroupByRegex('org\\.hyperledger\\..*') }
-    }
-    maven {
-      url "https://plugins.gradle.org/m2/"
-    }
-    mavenCentral()
-  }
-}
-
 plugins {
   id 'java-library'
   id 'maven-publish'
-  id 'net.ltgt.errorprone' version '4.0.0'
+  id 'net.ltgt.errorprone' version '4.4.0'
   id 'io.spring.dependency-management' version '1.1.5'
   id 'com.diffplug.spotless' version '6.25.0'
-  id 'com.jfrog.artifactory' version '5.2.2'
+  id 'me.champeau.jmh' version '0.7.3'
 }
 
 test {
   useJUnitPlatform()
 }
 
-sourceSets {
-  test {
-    resources {
-      srcDirs = ['src/test/resources']
-    }
-  }
-}
-
 dependencies {
-
-  implementation 'com.github.ben-manes.caffeine:caffeine'
   implementation 'com.google.guava:guava'
-  implementation 'net.java.dev.jna:jna'
-  implementation 'io.github.crate-crypto:java-verkle-cryptography'
   implementation 'io.tmio:tuweni-bytes'
-  implementation 'io.tmio:tuweni-rlp'
   implementation 'io.tmio:tuweni-units'
-  implementation 'org.apache.logging.log4j:log4j-api'
-  implementation 'org.apache.logging.log4j:log4j-core'
-  implementation 'org.hyperledger.besu.internal:rlp'
-  implementation 'org.hyperledger.besu.internal:trie'
   implementation 'org.bouncycastle:bcprov-jdk18on'
+  implementation 'org.hyperledger.besu.internal:trie'
 
-
-  testImplementation 'org.mockito:mockito-core'
-  testImplementation 'org.mockito:mockito-junit-jupiter'
-  testImplementation 'com.fasterxml.jackson.core:jackson-databind'
   testImplementation 'org.assertj:assertj-core'
-  testImplementation 'org.apache.commons:commons-csv:1.10.0'
   testImplementation 'org.junit.jupiter:junit-jupiter-api'
   testImplementation 'org.junit.jupiter:junit-jupiter-params'
   testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine'
+  testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+  jmh 'org.openjdk.jmh:jmh-core:1.37'
+  jmhAnnotationProcessor 'org.openjdk.jmh:jmh-generator-annprocess:1.37'
 }
 
+version = rootProject.version
 
-allprojects {
-  apply plugin: 'java-library'
-  apply plugin: 'maven-publish'
-  apply plugin: 'net.ltgt.errorprone'
-  apply from: "${rootDir}/gradle/versions.gradle"
-
-  version = rootProject.version
-
-  sourceCompatibility = 21
-  targetCompatibility = 21
-
-  repositories {
-    mavenCentral()
-    mavenLocal()
-    maven {
-      url = uri("https://hyperledger.jfrog.io/hyperledger/besu-maven")
-      content { includeGroupByRegex('org\\.hyperledger\\..*') }
-    }
-  }
-
-  artifacts {
-    archives jar
-  }
-
-  jar {
-    archiveBaseName = 'besu-stateless'
-    includeEmptyDirs = false
-    manifest {
-      attributes(
-        'Specification-Title': archiveBaseName,
-        'Specification-Version': project.version,
-        'Implementation-Title': archiveBaseName,
-        'Implementation-Version': project.version,
-        'Commit-Hash': getCommitHash(),
-        'Automatic-Module-Name': 'org.hyperledger.besu.stateless'
-        )
-    }
-  }
-
-  task sourcesJar(type: Jar, dependsOn: classes) {
-    archiveBaseName = 'besu-stateless'
-    archiveClassifier = 'sources'
-    from sourceSets.main.allSource
-  }
-
-  task javadocJar(type: Jar, dependsOn: javadoc) {
-    archiveBaseName = 'besu-stateless'
-    archiveClassifier = 'javadoc'
-    from javadoc.destinationDir
-  }
-
-  publishing {
-    publications {
-      mavenJava(MavenPublication) {
-
-        groupId = 'org.hyperledger.besu'  // Updated groupId
-        artifactId = 'besu-stateless'   // Updated artifactId
-        version "${project.version}"
-
-        from components.java
-        artifact sourcesJar
-        artifact javadocJar
-
-        versionMapping {
-          usage('java-api') {
-            fromResolutionOf('runtimeClasspath')
-          }
-          usage('java-runtime') {
-            fromResolutionResult()
-          }
-        }
-
-        pom {
-          name = "Besu stateless - ${project.name}"
-          description = 'Besu-Stateless'
-          url = 'https://github.com/hyperledger/besu-stateless'
-          licenses {
-            license {
-              name = 'The Apache License, Version 2.0'
-              url = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
-            }
-          }
-          scm {
-            connection = 'scm:git:git://github.com/hyperledger/besu-stateless.git'
-            developerConnection = 'scm:git:ssh://github.com/hyperledger/besu-stateless.git'
-            url = 'https://github.com/hyperledger/besu-stateless'
-          }
-        }
-      }
-    }
-  }
-
-  def artifactoryUser = project.hasProperty('artifactoryUser') ? project.property('artifactoryUser') : System.getenv('ARTIFACTORY_USER')
-  def artifactoryKey = project.hasProperty('artifactoryApiKey') ? project.property('artifactoryApiKey') : System.getenv('ARTIFACTORY_KEY')
-  def artifactoryRepo = System.getenv('ARTIFACTORY_REPO') ?: 'besu-maven'
-  def artifactoryOrg = System.getenv('ARTIFACTORY_ORG') ?: 'hyperledger'
-
-  artifactory {
-    contextUrl = "https://hyperledger.jfrog.io/${artifactoryOrg}"
-    publish {
-      repository {
-        repoKey = artifactoryRepo
-        username = artifactoryUser
-        password = artifactoryKey
-      }
-      defaults {
-        publications('mavenJava')
-        publishArtifacts = true
-        publishPom = true
-      }
-    }
-  }
-
-  apply plugin: 'com.diffplug.spotless'
-  spotless {
-    java {
-      // This path needs to be relative to each project
-      target 'src/**/*.java'
-      targetExclude '**/src/reference-test/**', '**/src/main/generated/**', '**/src/test/generated/**', '**/src/jmh/generated/**'
-      removeUnusedImports()
-      googleJavaFormat('1.17.0')
-      importOrder 'org.hyperledger', 'java', ''
-      trimTrailingWhitespace()
-      endWithNewline()
-      licenseHeaderFile "${rootDir}/gradle/spotless.java.license"
-    }
-    groovyGradle {
-      target '*.gradle'
-      greclipse('4.30.0').configFile(rootProject.file('gradle/formatter.properties'))
-      endWithNewline()
-    }
-    // Below this line are currently only license header tasks
-    format 'groovy', { target '**/src/*/grovy/**/*.groovy' }
-    format 'bash', { target '**/*.sh' }
-    format 'sol', { target '**/*.sol' }
-  }
-
-  tasks.withType(JavaCompile) {
-    options.compilerArgs += [
-      '-Xlint:unchecked',
-      '-Xlint:cast',
-      '-Xlint:rawtypes',
-      '-Xlint:overloads',
-      '-Xlint:divzero',
-      '-Xlint:finally',
-      '-Xlint:static',
-      '-Werror',
-    ]
-    options.errorprone {
-      excludedPaths = '.*/(generated/*.*|.*ReferenceTest_.*|build/.*/annotation-output/.*)'
-
-      // Our equals need to be symmetric, this checker doesn't respect that.
-      check('EqualsGetClass', CheckSeverity.OFF)
-      // We like to use futures with no return values.
-      check('FutureReturnValueIgnored', CheckSeverity.OFF)
-      // We use the JSR-305 annotations instead of the Google annotations.
-      check('ImmutableEnumChecker', CheckSeverity.OFF)
-      // This is a style check instead of an error-prone pattern.
-      check('UnnecessaryParentheses', CheckSeverity.OFF)
-
-      // This check is broken in Java 12.  See https://github.com/google/error-prone/issues/1257
-      if (JavaVersion.current() == JavaVersion.VERSION_12) {
-        check('Finally', CheckSeverity.OFF)
-      }
-      // This check is broken after Java 12.  See https://github.com/google/error-prone/issues/1352
-      if (JavaVersion.current() > JavaVersion.VERSION_12) {
-        check('TypeParameterUnusedInFormals', CheckSeverity.OFF)
-      }
-
-      check('FieldCanBeFinal', CheckSeverity.WARN)
-      check('InsecureCryptoUsage', CheckSeverity.WARN)
-      check('WildcardImport', CheckSeverity.WARN)
-    }
-    options.encoding = 'UTF-8'
+java {
+  toolchain {
+    languageVersion = JavaLanguageVersion.of(21)
   }
 }
-def sep = Pattern.quote(File.separator)
+
+repositories {
+  mavenCentral()
+  maven {
+    url = uri('https://hyperledger.jfrog.io/hyperledger/besu-maven')
+    content { includeGroupByRegex('org\\.hyperledger\\..*') }
+  }
+}
+
+jar {
+  archiveBaseName = 'besu-stateless'
+  manifest {
+    attributes(
+      'Specification-Title': archiveBaseName,
+      'Specification-Version': project.version,
+      'Implementation-Title': archiveBaseName,
+      'Implementation-Version': project.version,
+      'Automatic-Module-Name': 'org.hyperledger.besu.partitionedbinarytrie'
+      )
+  }
+}
+
+apply from: "${rootDir}/gradle/versions.gradle"
 
 dependencies {
   errorprone 'com.google.errorprone:error_prone_core'
 }
 
-task checkSpdxHeader(type: CheckSpdxHeader) {
-  apply plugin: 'groovy'
-
-  rootPath = "${projectDir}"
-  spdxHeader = "* SPDX-License-Identifier: Apache-2.0"
-  filesRegex = "(.*.java)|(.*.groovy)"
-  excludeRegex = [
-    "(.*${sep}generalstate${sep}GeneralStateRegressionReferenceTest.*)",
-    "(.*${sep}generalstate${sep}GeneralStateReferenceTest.*)",
-    "(.*${sep}generalstate${sep}LegacyGeneralStateReferenceTest.*)",
-    "(.*${sep}blockchain${sep}BlockchainReferenceTest.*)",
-    "(.*${sep}blockchain${sep}LegacyBlockchainReferenceTest.*)",
-    "(.*${sep}.gradle${sep}.*)",
-    "(.*${sep}.idea${sep}.*)",
-    "(.*${sep}out${sep}.*)",
-    "(.*${sep}build${sep}.*)",
-    "(.*${sep}src${sep}[^${sep}]+${sep}generated${sep}.*)"
-  ].join("|")
-}
-
-def getCommitHash() {
-  def stdout = new ByteArrayOutputStream()
-  exec {
-    commandLine 'git', 'rev-parse', 'HEAD'
-    standardOutput = stdout
+apply plugin: 'com.diffplug.spotless'
+spotless {
+  java {
+    target 'src/**/*.java'
+    removeUnusedImports()
+    googleJavaFormat('1.17.0')
+    importOrder 'org.hyperledger', 'java', ''
+    trimTrailingWhitespace()
+    endWithNewline()
+    licenseHeaderFile "${rootDir}/gradle/spotless.java.license"
   }
-  return stdout.toString().trim()
+  groovyGradle {
+    target '*.gradle'
+    greclipse('4.30.0').configFile(rootProject.file('gradle/formatter.properties'))
+    endWithNewline()
+  }
 }
 
+tasks.withType(JavaCompile) {
+  options.compilerArgs += [
+    '-Xlint:unchecked',
+    '-Xlint:cast',
+    '-Xlint:rawtypes',
+    '-Xlint:overloads',
+    '-Xlint:divzero',
+    '-Xlint:finally',
+    '-Xlint:static',
+    '-Werror',
+  ]
+  options.errorprone {
+    check('EqualsGetClass', CheckSeverity.OFF)
+    check('FutureReturnValueIgnored', CheckSeverity.OFF)
+    check('ImmutableEnumChecker', CheckSeverity.OFF)
+    check('UnnecessaryParentheses', CheckSeverity.OFF)
+    if (JavaVersion.current() > JavaVersion.VERSION_12) {
+      check('TypeParameterUnusedInFormals', CheckSeverity.OFF)
+    }
+    check('FieldCanBeFinal', CheckSeverity.WARN)
+    check('InsecureCryptoUsage', CheckSeverity.WARN)
+    check('WildcardImport', CheckSeverity.WARN)
+  }
+  options.encoding = 'UTF-8'
+}
 
-check.dependsOn checkSpdxHeader
+tasks.named('compileJmhJava') {
+  options.compilerArgs -= '-Werror'
+  options.errorprone {
+    check('ThreadPriorityCheck', CheckSeverity.OFF)
+  }
+}
+
 build.dependsOn spotlessApply
-build.dependsOn javadoc
+
+jmh {
+  jmhVersion = '1.37'
+  fork = 3
+  warmupIterations = 3
+  iterations = 5
+  timeOnIteration = '1s'
+  duplicateClassesStrategy = DuplicatesStrategy.INCLUDE
+  if (project.hasProperty('includes')) {
+    def patterns = project.property('includes').toString().split(',')
+    includes = patterns.collect { ".*${it.trim()}.*" }
+  } else {
+    includes = ['.*']
+  }
+}
+
+publishing {
+  publications {
+    mavenJava(MavenPublication) {
+      groupId = 'org.hyperledger.besu'
+      artifactId = 'besu-stateless'
+      version = project.version
+      from components.java
+      pom {
+        name = 'Besu Stateless — Partitioned Binary Trie'
+        description = 'EIP-8297 Partitioned Binary Trie for Hyperledger Besu'
+        url = 'https://github.com/besu-eth/besu-stateless'
+        licenses {
+          license {
+            name = 'The Apache License, Version 2.0'
+            url = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+          }
+        }
+        scm {
+          connection = 'scm:git:git://github.com/besu-eth/besu-stateless.git'
+          developerConnection = 'scm:git:ssh://github.com/besu-eth/besu-stateless.git'
+          url = 'https://github.com/besu-eth/besu-stateless'
+        }
+      }
+    }
+  }
+}

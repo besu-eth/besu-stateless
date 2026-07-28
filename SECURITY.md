@@ -1,22 +1,21 @@
-# Hyperledger Security Policy
+# Security Policy
 
-## Reporting a Security Bug
+## Reporting a vulnerability
 
-If you think you have discovered a security issue in any of the Hyperledger projects, we'd love to
-hear from you. We will take all security bugs seriously and if confirmed upon investigation we will
-patch it within a reasonable amount of time and release a public security bulletin discussing the
-impact and credit the discoverer.
+If you believe you have found a security issue in Besu Stateless or related Besu components, please report it responsibly. We take security reports seriously and will investigate confirmed issues, patch within a reasonable timeframe, and publish an advisory crediting the reporter where appropriate.
 
-There are two email addresses where Hyperledger Besu accepts security bugs. The
-first, [security "dash" besu at lists dot hyperledger dot org](mailto:security-besu@lists.hyperledger.org)
-is limited to a subset of Hyperledger Besu maintainers and Hyperledger staff. For highly sensitive
-bugs this is a preferred address. The second email
-address [security at hyperledger dot org](mailto:security@hyperledger.org) is limited to a subset of
-maintainers and staff of all Hyperledger projects, and may be viewed by maintainers outside of
-Hyperledger Besu. When sending information to either of these emails please be sure to include a
-description of the flaw and any related information (e.g. reproduction steps, version, known active
-use).
+### Preferred contacts
 
-The process by which the Hyperledger Security Team handles security bugs is documented further in
-our [Defect Response page](https://wiki.hyperledger.org/display/SEC/Defect+Response) on our
-[wiki](https://wiki.hyperledger.org).
+| Channel | Use when |
+|---------|----------|
+| [security-besu@lists.hyperledger.org](mailto:security-besu@lists.hyperledger.org) | Besu-specific issues; limited to Besu maintainers and Hyperledger staff |
+| [security@hyperledger.org](mailto:security@hyperledger.org) | Cross-project or highly sensitive issues; visible to Hyperledger security team |
+| [security@consensys.io](mailto:security@consensys.io) | Consensys-maintained Besu deployments and coordinated disclosure |
+
+Include a description of the flaw, affected versions, reproduction steps, and any known active exploitation.
+
+### Process
+
+The Hyperledger Security Team documents defect handling on the [Defect Response wiki](https://wiki.hyperledger.org/display/SEC/Defect+Response).
+
+Please do **not** disclose security issues in public GitHub issues or pull requests before coordinated disclosure.
