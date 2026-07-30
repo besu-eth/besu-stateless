@@ -39,8 +39,8 @@ import org.openjdk.jmh.infra.Blackhole;
 /**
  * Commit benchmarks and parallel vs sequential batch commit.
  *
- * <p>Sample (JDK 21, M2 Pro, ACCOUNT_BASIC): sequential commit 1K keys ~5.7 ms, parallel ~7.1
- * ms (parallel overhead dominates for in-memory batches at this scale).
+ * <p>Sample (JDK 21, M2 Pro, ACCOUNT_BASIC): sequential commit 1K keys ~5.7 ms, parallel ~7.1 ms
+ * (parallel overhead dominates for in-memory batches at this scale).
  */
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(TimeUnit.MICROSECONDS)

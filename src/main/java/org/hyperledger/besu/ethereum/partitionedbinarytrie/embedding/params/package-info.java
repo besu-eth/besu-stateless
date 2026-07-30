@@ -14,7 +14,5 @@
  *
  */
 
-/**
- * Configuration parameters for the EIP-8297 embedding layer.
- */
+/** Configuration parameters for the EIP-8297 embedding layer. */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.params;

@@ -14,7 +14,5 @@
  *
  */
 
-/**
- * Leaf value encoding for the embedding layer: account headers and bytecode chunking.
- */
+/** Leaf value encoding for the embedding layer: account headers and bytecode chunking. */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.codec;

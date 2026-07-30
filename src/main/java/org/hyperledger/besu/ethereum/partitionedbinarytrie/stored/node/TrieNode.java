@@ -30,12 +30,12 @@ import org.apache.tuweni.bytes.Bytes;
 /**
  * Mutable trie node graph supporting lazy disk loading, dirty tracking, and commit.
  *
- * <p>Concrete implementations are {@link MemoryLeafNode}, {@link MemoryBranchNode}, and {@link
- * StoredTrieNode}. The empty trie is represented by a singleton returned from {@link #empty()}.
+ * <p>Concrete implementations are {@link LeafNode}, {@link BranchNode}, and {@link StoredNode}. The
+ * empty trie is represented by a singleton returned from {@link #empty()}.
  *
- * <p>Get, put, and commit delegate to {@link PathNodeVisitor} and {@link
- * LocationNodeVisitor} implementations via double dispatch ({@link #accept(PathNodeVisitor,
- * byte[], int, int)} and {@link #accept(Bytes, LocationNodeVisitor)}).
+ * <p>Get, put, and commit delegate to {@link PathNodeVisitor} and {@link LocationNodeVisitor}
+ * implementations via double dispatch ({@link #accept(PathNodeVisitor, byte[], int, int)} and
+ * {@link #accept(Bytes, LocationNodeVisitor)}).
  */
 public abstract class TrieNode {
 

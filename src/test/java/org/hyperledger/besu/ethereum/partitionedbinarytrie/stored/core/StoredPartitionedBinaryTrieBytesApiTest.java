@@ -63,8 +63,7 @@ class StoredPartitionedBinaryTrieBytesApiTest {
     final Bytes32 root = trie.getRootHash();
     assertThat(root).isEqualTo(spec.root());
 
-    final StoredPartitionedBinaryTrie reloaded =
-        new StoredPartitionedBinaryTrie(nodeLoader, root);
+    final StoredPartitionedBinaryTrie reloaded = new StoredPartitionedBinaryTrie(nodeLoader, root);
     assertThat(reloaded.get(key)).contains(value);
     assertThat(reloaded.getRootHash()).isEqualTo(root);
   }
@@ -108,8 +107,7 @@ class StoredPartitionedBinaryTrieBytesApiTest {
     trie.commit(nodeUpdater);
     assertThat(trie.getRootHash()).isEqualTo(rootA);
 
-    final StoredPartitionedBinaryTrie atRootA =
-        new StoredPartitionedBinaryTrie(nodeLoader, rootA);
+    final StoredPartitionedBinaryTrie atRootA = new StoredPartitionedBinaryTrie(nodeLoader, rootA);
     assertThat(atRootA.get(keyA)).contains(valueA);
     assertThat(atRootA.get(keyB)).isEmpty();
   }

@@ -15,11 +15,11 @@
  */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.visitor;
 
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.codec.TrieNodeCodec;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.codec.StoredNodeCodec;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.BranchNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.EmptyTrieNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.MemoryBranchNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.MemoryLeafNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.StoredTrieNode;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.LeafNode;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.StoredNode;
 import org.hyperledger.besu.ethereum.trie.NodeUpdater;
 
 import java.util.concurrent.Callable;
@@ -46,27 +46,28 @@ public class ParallelCommitVisitor implements LocationNodeVisitor {
   public void visit(final Bytes location, final EmptyTrieNode emptyNode) {}
 
   @Override
-  public void visit(final Bytes location, final MemoryLeafNode leafNode) {
+  public void visit(final Bytes location, final LeafNode leafNode) {
     if (leafNode.isClean()) {
       return;
     }
     nodeUpdater.store(
         location,
         Bytes32.wrap(leafNode.merkleHashBytes()),
-        TrieNodeCodec.encodeLeaf(leafNode.keyBytes(), leafNode.keyLength(), leafNode.valueBytes()));
+        StoredNodeCodec.encodeLeaf(
+            leafNode.keyBytes(), leafNode.keyLength(), leafNode.valueBytes()));
     leafNode.markClean();
   }
 
   @Override
-  public void visit(final Bytes location, final MemoryBranchNode branchNode) {
+  public void visit(final Bytes location, final BranchNode branchNode) {
     if (branchNode.isClean()) {
       return;
     }
     final Bytes leftLoc =
-        TrieNodeCodec.childLocation(
+        StoredNodeCodec.childLocation(
             location, branchNode.prefixBits(), branchNode.prefixLength(), 0);
     final Bytes rightLoc =
-        TrieNodeCodec.childLocation(
+        StoredNodeCodec.childLocation(
             location, branchNode.prefixBits(), branchNode.prefixLength(), 1);
 
     final ForkJoinTask<Void> leftTask =
@@ -91,7 +92,7 @@ public class ParallelCommitVisitor implements LocationNodeVisitor {
     nodeUpdater.store(
         location,
         Bytes32.wrap(branchNode.merkleHashBytes()),
-        TrieNodeCodec.encodeBranch(
+        StoredNodeCodec.encodeBranch(
             branchNode.prefixBits(),
             branchNode.prefixLength(),
             branchNode.leftChild().merkleHashBytes(),
@@ -100,7 +101,7 @@ public class ParallelCommitVisitor implements LocationNodeVisitor {
   }
 
   @Override
-  public void visit(final Bytes location, final StoredTrieNode storedNode) {
+  public void visit(final Bytes location, final StoredNode storedNode) {
     storedNode.load().accept(storedNode.storageLocation(), this);
     storedNode.reloadAfterCommit();
   }

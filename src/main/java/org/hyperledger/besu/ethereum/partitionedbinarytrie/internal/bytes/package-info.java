@@ -14,7 +14,5 @@
  *
  */
 
-/**
- * Allocation-free byte-array operations for trie key/path manipulation.
- */
+/** Allocation-free byte-array operations for trie key/path manipulation. */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.bytes;

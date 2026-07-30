@@ -16,17 +16,17 @@
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.visitor;
 
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.bytes.ByteTrieOps;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.BranchNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.EmptyTrieNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.MemoryBranchNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.MemoryLeafNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.StoredTrieNode;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.LeafNode;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.StoredNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.TrieNode;
 
 /**
  * Read-only visitor that descends the trie to the node matching a key path.
  *
- * <p>Returns the matching {@link MemoryLeafNode} or {@link EmptyTrieNode#instance()} when absent.
- * Mirrors Besu {@link org.hyperledger.besu.ethereum.trie.patricia.GetVisitor}.
+ * <p>Returns the matching {@link LeafNode} or {@link EmptyTrieNode#instance()} when absent. Mirrors
+ * Besu {@link org.hyperledger.besu.ethereum.trie.patricia.GetVisitor}.
  */
 public class GetVisitor implements PathNodeVisitor {
 
@@ -40,7 +40,7 @@ public class GetVisitor implements PathNodeVisitor {
 
   @Override
   public TrieNode visit(
-      final MemoryLeafNode leafNode, final byte[] key, final int keyLen, final int depth) {
+      final LeafNode leafNode, final byte[] key, final int keyLen, final int depth) {
     if (ByteTrieOps.keysEqual(leafNode.keyBytes(), leafNode.keyLength(), key, keyLen)) {
       return leafNode;
     }
@@ -49,7 +49,7 @@ public class GetVisitor implements PathNodeVisitor {
 
   @Override
   public TrieNode visit(
-      final MemoryBranchNode branchNode, final byte[] key, final int keyLen, final int depth) {
+      final BranchNode branchNode, final byte[] key, final int keyLen, final int depth) {
     final int keyBits = keyLen * 8;
     if (depth >= keyBits) {
       return NOT_FOUND;
@@ -70,7 +70,7 @@ public class GetVisitor implements PathNodeVisitor {
 
   @Override
   public TrieNode visit(
-      final StoredTrieNode storedNode, final byte[] key, final int keyLen, final int depth) {
+      final StoredNode storedNode, final byte[] key, final int keyLen, final int depth) {
     return storedNode.load().accept(this, key, keyLen, depth);
   }
 }

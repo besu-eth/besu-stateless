@@ -15,10 +15,10 @@
  */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.jmh;
 
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.core.StoredPartitionedBinaryTrie;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.jmh.support.InMemoryTrieBackend;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.jmh.support.TrieBenchmarkFixtures;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.jmh.support.TrieBenchmarkFixtures.KeyStyle;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.core.StoredPartitionedBinaryTrie;
 
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -64,8 +64,7 @@ public class StoredTrieBytesApiBenchmark {
     backend = new InMemoryTrieBackend();
     final var factory = backend.factory();
     committedRoot =
-        TrieBenchmarkFixtures.committedRoot(
-            factory, backend.updater(), TRIE_SIZE, keyStyle);
+        TrieBenchmarkFixtures.committedRoot(factory, backend.updater(), TRIE_SIZE, keyStyle);
     trie = factory.create(committedRoot);
     key = TrieBenchmarkFixtures.keyBytes(0, keyStyle);
     value = Bytes.wrap(TrieBenchmarkFixtures.valueForIndex(0));

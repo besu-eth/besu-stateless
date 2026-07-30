@@ -26,15 +26,15 @@ import org.apache.tuweni.bytes.Bytes32;
 /**
  * Single entry point for constructing stored partitioned binary trie instances.
  *
- * <p>Creates sequential and parallel stored tries from a shared {@link StoredTrieNodeFactory}
- * backed by the given {@link NodeLoader}.
+ * <p>Creates sequential and parallel stored tries from a shared {@link StoredNodeFactory} backed by
+ * the given {@link NodeLoader}.
  */
 public final class PartitionedBinaryTrieFactory {
 
-  private final StoredTrieNodeFactory nodeFactory;
+  private final StoredNodeFactory nodeFactory;
 
   public PartitionedBinaryTrieFactory(final NodeLoader nodeLoader) {
-    this.nodeFactory = new StoredTrieNodeFactory(nodeLoader);
+    this.nodeFactory = new StoredNodeFactory(nodeLoader);
   }
 
   public StoredPartitionedBinaryTrie create() {

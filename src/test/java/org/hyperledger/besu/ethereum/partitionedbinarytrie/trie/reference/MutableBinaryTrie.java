@@ -117,9 +117,8 @@ public final class MutableBinaryTrie {
   private static Optional<Bytes32> getNode(
       final BinaryNode node, final Bytes key, final int depth) {
     return switch (node) {
-      case final LeafNode leaf -> leaf.key().equals(key)
-          ? Optional.of(leaf.value())
-          : Optional.empty();
+      case final LeafNode leaf ->
+          leaf.key().equals(key) ? Optional.of(leaf.value()) : Optional.empty();
       case final BranchNode branch -> {
         final Bytes bits = BitUtils.bytesToBitList(key);
         final int prefixSize = branch.prefix().size();
@@ -224,16 +223,27 @@ public final class MutableBinaryTrie {
         if (BitUtils.bitAt(bits, split) == 0) {
           final BinaryNode updatedLeft = removeNode(branch.left(), key, split + 1);
           if (updatedLeft == null) {
-            yield branch.right();
+            yield mergeSurvivor(branch.prefix(), 1, branch.right());
           }
           yield new BranchNode(branch.prefix(), updatedLeft, branch.right());
         }
         final BinaryNode updatedRight = removeNode(branch.right(), key, split + 1);
         if (updatedRight == null) {
-          yield branch.left();
+          yield mergeSurvivor(branch.prefix(), 0, branch.left());
         }
         yield new BranchNode(branch.prefix(), branch.left(), updatedRight);
       }
     };
+  }
+
+  private static BinaryNode mergeSurvivor(
+      final Bytes parentPrefix, final int survivorSplitBit, final BinaryNode survivor) {
+    if (survivor instanceof final BranchNode branch) {
+      return new BranchNode(
+          BitUtils.concatBits(parentPrefix, survivorSplitBit, branch.prefix()),
+          branch.left(),
+          branch.right());
+    }
+    return survivor;
   }
 }

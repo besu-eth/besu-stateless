@@ -17,8 +17,8 @@ package org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.core;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.codec.BasicDataEncoder;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.keys.TrieKeyDerivation;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.codec.AccountBasicDataEncoder;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.keys.Eip8297TreeKeyDerivation;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.TrieConstants;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.factory.NodeLoaderMock;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.factory.NodeUpdaterMock;
@@ -37,9 +37,9 @@ import org.junit.jupiter.api.Test;
 /**
  * Stored-mode persistence and Besu rollback simulation.
  *
- * <p>Layer: stored core ({@link StoredPartitionedBinaryTrie} via factory). Nodes are content-addressed;
- * historical roots remain loadable after later commits. Root hashes compared against {@link
- * BinaryTrie} where applicable.
+ * <p>Layer: stored core ({@link StoredPartitionedBinaryTrie} via factory). Nodes are
+ * content-addressed; historical roots remain loadable after later commits. Root hashes compared
+ * against {@link BinaryTrie} where applicable.
  */
 class StoredPartitionedBinaryTriePersistenceTest {
 
@@ -137,8 +137,8 @@ class StoredPartitionedBinaryTriePersistenceTest {
 
   @Test
   void embeddingAccountBasicDataRoundTrip() {
-    final Bytes basicKey = TrieKeyDerivation.getTreeKeyForBasicData(ADDRESS);
-    final Bytes32 basicData = BasicDataEncoder.encodeBasicData(1, 2, UInt256.valueOf(42));
+    final Bytes basicKey = Eip8297TreeKeyDerivation.getTreeKeyForBasicData(ADDRESS);
+    final Bytes32 basicData = AccountBasicDataEncoder.encodeBasicData(1, 2, UInt256.valueOf(42));
     final BinaryTrie spec = new BinaryTrie();
     spec.put(basicKey, basicData);
 

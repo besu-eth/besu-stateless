@@ -14,7 +14,5 @@
  *
  */
 
-/**
- * Spec trie hashing utilities used by the reference oracle ({@code trie.reference}).
- */
+/** Spec trie hashing utilities used by the reference oracle ({@code trie.reference}). */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.hash;

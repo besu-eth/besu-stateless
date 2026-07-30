@@ -14,7 +14,5 @@
  *
  */
 
-/**
- * Canonical binary trie node types used by the spec-reference oracle ({@code trie.reference}).
- */
+/** Canonical binary trie node types used by the spec-reference oracle ({@code trie.reference}). */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node;

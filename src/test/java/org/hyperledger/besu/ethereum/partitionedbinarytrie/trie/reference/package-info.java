@@ -17,8 +17,8 @@
 /**
  * Spec-faithful reference trie implementations used as conformance oracles in tests.
  *
- * <p>{@link org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference.BinaryTrie}
- * rebuilds the canonical node structure from a flat map on every root computation. {@link
+ * <p>{@link org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference.BinaryTrie} rebuilds
+ * the canonical node structure from a flat map on every root computation. {@link
  * org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference.MutableBinaryTrie} maintains
  * the tree incrementally.
  */

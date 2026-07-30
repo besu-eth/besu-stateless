@@ -15,14 +15,14 @@
  */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.visitor;
 
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.TrieMutationSupport;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.bytes.ByteTrieOps;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.BranchNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.EmptyTrieNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.MemoryBranchNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.MemoryLeafNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.StoredTrieNode;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.LeafNode;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.StoredNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.TrieNode;
 
-import java.util.Arrays;
 import java.util.Optional;
 import java.util.function.UnaryOperator;
 
@@ -45,18 +45,20 @@ public class DeferredPutVisitor implements PathNodeVisitor {
       final EmptyTrieNode emptyNode, final byte[] key, final int keyLen, final int depth) {
     final Optional<byte[]> merged = merger.apply(Optional.empty());
     if (merged.isPresent()) {
-      return new MemoryLeafNode(key, keyLen, merged.get(), false);
+      TrieMutationSupport.validateValue(merged.get());
+      return new LeafNode(key, keyLen, merged.get(), false);
     }
     return EmptyTrieNode.instance();
   }
 
   @Override
   public TrieNode visit(
-      final MemoryLeafNode leafNode, final byte[] key, final int keyLen, final int depth) {
+      final LeafNode leafNode, final byte[] key, final int keyLen, final int depth) {
     if (ByteTrieOps.keysEqual(leafNode.keyBytes(), leafNode.keyLength(), key, keyLen)) {
       final Optional<byte[]> merged = merger.apply(Optional.of(leafNode.valueBytes()));
       if (merged.isPresent()) {
-        return new MemoryLeafNode(key, keyLen, merged.get(), false);
+        TrieMutationSupport.validateValue(merged.get());
+        return new LeafNode(key, keyLen, merged.get(), false);
       }
       return EmptyTrieNode.instance();
     }
@@ -65,41 +67,30 @@ public class DeferredPutVisitor implements PathNodeVisitor {
     if (newValue.isEmpty()) {
       return leafNode;
     }
-
-    final byte[] bits = ByteTrieOps.expandKeyBitsCopy(key, keyLen);
-    final byte[] otherBits = ByteTrieOps.expandKeyBits(leafNode.keyBytes(), leafNode.keyLength());
-    int run = 0;
-    while (depth + run < keyLen * 8
-        && depth + run < leafNode.keyLength() * 8
-        && bits[depth + run] == otherBits[depth + run]) {
-      run++;
-    }
-    final byte[] prefix = Arrays.copyOfRange(bits, depth, depth + run);
-    final TrieNode newLeaf = new MemoryLeafNode(key, keyLen, newValue.get(), false);
-    final TrieNode oldLeaf =
-        new MemoryLeafNode(leafNode.keyBytes(), leafNode.keyLength(), leafNode.valueBytes(), false);
-    if (bits[depth + run] == 0) {
-      return new MemoryBranchNode(prefix, run, newLeaf, oldLeaf, false);
-    }
-    return new MemoryBranchNode(prefix, run, oldLeaf, newLeaf, false);
+    TrieMutationSupport.validateValue(newValue.get());
+    return TrieMutationSupport.branchFromDivergingLeaves(
+        leafNode, key, keyLen, newValue.get(), depth);
   }
 
   @Override
   public TrieNode visit(
-      final MemoryBranchNode branchNode, final byte[] key, final int keyLen, final int depth) {
+      final BranchNode branchNode, final byte[] key, final int keyLen, final int depth) {
     final int keyBits = keyLen * 8;
     final byte[] bits = ByteTrieOps.expandKeyBits(key, keyLen);
     final byte[] prefixBits = branchNode.prefixBits();
     final int prefixLen = branchNode.prefixLength();
-    int matched = 0;
-    while (matched < prefixLen
-        && depth + matched < keyBits
-        && bits[depth + matched] == prefixBits[matched]) {
-      matched++;
-    }
+    final int matched =
+        TrieMutationSupport.matchingPrefixLength(bits, keyBits, prefixBits, prefixLen, depth);
     if (matched == prefixLen) {
       final int split = depth + prefixLen;
       if (split >= keyBits) {
+        // Only an inserting merge can violate prefix-freeness here. A deleting/no-op merge for a
+        // non-existent prefix key should leave the existing subtree unchanged.
+        final Optional<byte[]> newValue = merger.apply(Optional.empty());
+        if (newValue.isPresent()) {
+          TrieMutationSupport.validateValue(newValue.get());
+          throw new IllegalArgumentException(TrieMutationSupport.PREFIX_FREE_VIOLATION);
+        }
         return branchNode;
       }
       if (bits[split] == 0) {
@@ -115,25 +106,14 @@ public class DeferredPutVisitor implements PathNodeVisitor {
     if (newValue.isEmpty()) {
       return branchNode;
     }
-
-    final TrieNode survivor =
-        new MemoryBranchNode(
-            Arrays.copyOfRange(prefixBits, matched + 1, prefixLen),
-            prefixLen - matched - 1,
-            branchNode.leftChild(),
-            branchNode.rightChild(),
-            false);
-    final TrieNode leaf = new MemoryLeafNode(key, keyLen, newValue.get(), false);
-    if (bits[depth + matched] == 0) {
-      return new MemoryBranchNode(
-          Arrays.copyOf(prefixBits, matched), matched, leaf, survivor, false);
-    }
-    return new MemoryBranchNode(Arrays.copyOf(prefixBits, matched), matched, survivor, leaf, false);
+    TrieMutationSupport.validateValue(newValue.get());
+    return TrieMutationSupport.splitBranchWithLeaf(
+        branchNode, key, keyLen, newValue.get(), bits, keyBits, depth, matched);
   }
 
   @Override
   public TrieNode visit(
-      final StoredTrieNode storedNode, final byte[] key, final int keyLen, final int depth) {
+      final StoredNode storedNode, final byte[] key, final int keyLen, final int depth) {
     return storedNode.load().accept(this, key, keyLen, depth);
   }
 }

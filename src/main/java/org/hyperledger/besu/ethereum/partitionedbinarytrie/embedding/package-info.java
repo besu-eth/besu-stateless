@@ -19,10 +19,10 @@
  * keys.
  *
  * <p>Zone-based key derivation ({@link
- * org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.keys.TrieKeyDerivation}), account
- * header encoding ({@link
- * org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.codec.BasicDataEncoder}), and
- * bytecode chunking ({@link
+ * org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.keys.Eip8297TreeKeyDerivation}),
+ * account header encoding ({@link
+ * org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.codec.AccountBasicDataEncoder}),
+ * and bytecode chunking ({@link
  * org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.codec.CodeChunkifier}) follow the
  * execution-specs binary trie embedding layer.
  */

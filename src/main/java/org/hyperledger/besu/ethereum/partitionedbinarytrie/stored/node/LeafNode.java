@@ -16,7 +16,7 @@
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node;
 
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.bytes.ByteTrieOps;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.codec.TrieNodeCodec;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.codec.StoredNodeCodec;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.visitor.LocationNodeVisitor;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.visitor.PathNodeVisitor;
 
@@ -26,15 +26,14 @@ import java.util.Optional;
 import org.apache.tuweni.bytes.Bytes;
 
 /** In-memory leaf node holding a single key-value pair. */
-public final class MemoryLeafNode extends TrieNode {
+public final class LeafNode extends TrieNode {
 
   private final byte[] key;
   private final int keyLen;
   private final byte[] value;
   private byte[] hash;
 
-  public MemoryLeafNode(
-      final byte[] key, final int keyLen, final byte[] value, final boolean clean) {
+  public LeafNode(final byte[] key, final int keyLen, final byte[] value, final boolean clean) {
     super(clean);
     this.key = Arrays.copyOf(key, keyLen);
     this.keyLen = keyLen;
@@ -48,7 +47,7 @@ public final class MemoryLeafNode extends TrieNode {
 
   @Override
   public byte[] merkleHashBytes() {
-    if (hash == null || !clean) {
+    if (hash == null) {
       hash = ByteTrieOps.leafHash(key, keyLen, value);
     }
     return hash;
@@ -56,15 +55,12 @@ public final class MemoryLeafNode extends TrieNode {
 
   @Override
   public Bytes encode() {
-    return TrieNodeCodec.encodeLeaf(key, keyLen, value);
+    return StoredNodeCodec.encodeLeaf(key, keyLen, value);
   }
 
   @Override
   public TrieNode accept(
-      final PathNodeVisitor visitor,
-      final byte[] lookupKey,
-      final int lookupLen,
-      final int depth) {
+      final PathNodeVisitor visitor, final byte[] lookupKey, final int lookupLen, final int depth) {
     return visitor.visit(this, lookupKey, lookupLen, depth);
   }
 

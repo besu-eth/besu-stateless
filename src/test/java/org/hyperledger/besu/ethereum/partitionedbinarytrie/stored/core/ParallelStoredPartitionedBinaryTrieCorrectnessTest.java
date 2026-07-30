@@ -16,6 +16,7 @@
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.core;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.TrieConstants;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.factory.NodeLoaderMock;
@@ -75,6 +76,35 @@ class ParallelStoredPartitionedBinaryTrieCorrectnessTest {
     parallelTrie.commit(parallelUpdater);
 
     assertThat(parallelTrie.get(key)).contains(value);
+  }
+
+  @Test
+  void shouldRejectMalformedPendingInputs() {
+    assertThatThrownBy(
+            () -> parallelTrie.put(Bytes.EMPTY.toArray(), 0, Bytes32.repeat((byte) 1).toArray()))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(
+            () ->
+                parallelTrie.put(
+                    Bytes.of((byte) 1).toArray(), 1, Bytes.wrap(new byte[31]).toArray()))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> parallelTrie.remove(Bytes.EMPTY.toArray(), 0))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  void shouldRejectPrefixKeyInsertions() {
+    final Bytes shortKey = Bytes.fromHexString("0xaaaa");
+    final Bytes longKey = Bytes.fromHexString("0xaaaabb");
+
+    parallelTrie.put(longKey, Bytes32.repeat((byte) 0x01));
+    parallelTrie.commit(parallelUpdater);
+
+    parallelTrie.put(shortKey, Bytes32.repeat((byte) 0x02));
+
+    assertThatThrownBy(() -> parallelTrie.commit(parallelUpdater))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("prefix");
   }
 
   @Test
@@ -372,8 +402,7 @@ class ParallelStoredPartitionedBinaryTrieCorrectnessTest {
 
   @Test
   void factoryCreatesParallelTrie() {
-    final PartitionedBinaryTrieFactory factory =
-        new PartitionedBinaryTrieFactory(parallelLoader);
+    final PartitionedBinaryTrieFactory factory = new PartitionedBinaryTrieFactory(parallelLoader);
     final ParallelStoredPartitionedBinaryTrie trie = factory.createParallel();
     assertThat(trie.getRootHash()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
   }

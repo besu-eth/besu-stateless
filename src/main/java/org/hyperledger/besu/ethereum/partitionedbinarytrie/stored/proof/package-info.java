@@ -14,7 +14,5 @@
  *
  */
 
-/**
- * Merkle proof generation and verification for stored trie nodes.
- */
+/** Merkle proof generation and verification for stored trie nodes. */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.proof;

@@ -20,7 +20,7 @@ plugins {
   id 'maven-publish'
   id 'net.ltgt.errorprone' version '4.4.0'
   id 'io.spring.dependency-management' version '1.1.5'
-  id 'com.diffplug.spotless' version '6.25.0'
+  id 'com.diffplug.spotless' version '7.2.1'
   id 'me.champeau.jmh' version '0.7.3'
 }
 
@@ -85,7 +85,7 @@ spotless {
   java {
     target 'src/**/*.java'
     removeUnusedImports()
-    googleJavaFormat('1.17.0')
+    googleJavaFormat('1.35.0')
     importOrder 'org.hyperledger', 'java', ''
     trimTrailingWhitespace()
     endWithNewline()
@@ -93,7 +93,7 @@ spotless {
   }
   groovyGradle {
     target '*.gradle'
-    greclipse('4.30.0').configFile(rootProject.file('gradle/formatter.properties'))
+    greclipse('4.31').configFile(rootProject.file('gradle/formatter.properties'))
     endWithNewline()
   }
 }

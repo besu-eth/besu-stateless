@@ -15,7 +15,7 @@
  */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.codec;
 
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.params.EmbeddingParameters;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.params.Eip8297EmbeddingParameters;
 
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -24,9 +24,9 @@ import org.apache.tuweni.units.bigints.UInt256;
  * Packs account basic data (version, code size, nonce, balance) into a 32-byte leaf value per
  * EIP-8297.
  */
-public final class BasicDataEncoder {
+public final class AccountBasicDataEncoder {
 
-  private BasicDataEncoder() {}
+  private AccountBasicDataEncoder() {}
 
   /**
    * Encodes account basic data for storage at the basic-data header leaf.
@@ -45,7 +45,7 @@ public final class BasicDataEncoder {
       throw new IllegalArgumentException("Code size does not fit in 4 bytes");
     }
     final byte[] result = new byte[32];
-    result[0] = (byte) EmbeddingParameters.BASIC_DATA_VERSION;
+    result[0] = (byte) Eip8297EmbeddingParameters.BASIC_DATA_VERSION;
     // bytes 1-3 reserved
     result[4] = (byte) (codeSize >> 24);
     result[5] = (byte) (codeSize >> 16);

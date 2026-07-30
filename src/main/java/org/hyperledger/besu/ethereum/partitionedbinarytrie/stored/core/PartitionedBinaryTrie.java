@@ -18,7 +18,7 @@ package org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.core;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.TrieConstants;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.factory.StoredTrieNodeFactory;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.factory.StoredNodeFactory;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.TrieNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.TrieNodeTraversal;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.visitor.CommitVisitor;
@@ -265,7 +265,7 @@ public class PartitionedBinaryTrie {
     return getRootHash().equals(EMPTY_TRIE_ROOT);
   }
 
-  public void commit(final NodeUpdater nodeUpdater, final StoredTrieNodeFactory factory) {
+  public void commit(final NodeUpdater nodeUpdater, final StoredNodeFactory factory) {
     root.accept(Bytes.EMPTY, new CommitVisitor(nodeUpdater));
     final Bytes32 rootHash = getRootHash();
     root =
@@ -363,12 +363,11 @@ public class PartitionedBinaryTrie {
   }
 
   /** Returns a deferred put visitor for read-modify-write during batched commits. */
-  protected PathNodeVisitor getDeferredPutVisitor(
-      final UnaryOperator<Optional<byte[]>> merger) {
+  protected PathNodeVisitor getDeferredPutVisitor(final UnaryOperator<Optional<byte[]>> merger) {
     return new DeferredPutVisitor(merger);
   }
 
-  private static void validateKey(final int keyLen) {
+  protected static void validateKey(final int keyLen) {
     if (keyLen < 1) {
       throw new IllegalArgumentException("Key must not be empty");
     }
@@ -377,7 +376,7 @@ public class PartitionedBinaryTrie {
     }
   }
 
-  private static void validateValue(final byte[] value) {
+  protected static void validateValue(final byte[] value) {
     if (value.length != TrieConstants.VALUE_LENGTH) {
       throw new IllegalArgumentException("Value must be 32 bytes");
     }

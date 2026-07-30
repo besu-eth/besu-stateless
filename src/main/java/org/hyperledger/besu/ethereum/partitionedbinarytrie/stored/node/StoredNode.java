@@ -15,7 +15,7 @@
  */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node;
 
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.factory.StoredTrieNodeFactory;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.factory.StoredNodeFactory;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.visitor.LocationNodeVisitor;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.visitor.PathNodeVisitor;
 
@@ -23,15 +23,14 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
 /** Lazy-loading trie node proxy backed by a persisted hash and location. */
-public final class StoredTrieNode extends TrieNode {
+public final class StoredNode extends TrieNode {
 
-  private final StoredTrieNodeFactory factory;
+  private final StoredNodeFactory factory;
   private final Bytes location;
   private final Bytes32 hash;
   private TrieNode loaded;
 
-  public StoredTrieNode(
-      final StoredTrieNodeFactory factory, final Bytes location, final Bytes32 hash) {
+  public StoredNode(final StoredNodeFactory factory, final Bytes location, final Bytes32 hash) {
     super(true);
     this.factory = factory;
     this.location = location;

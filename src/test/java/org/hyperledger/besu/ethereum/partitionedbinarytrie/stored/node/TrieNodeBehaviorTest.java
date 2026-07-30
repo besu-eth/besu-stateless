@@ -19,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.factory.NodeLoaderMock;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.factory.NodeUpdaterMock;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.factory.StoredTrieNodeFactory;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.factory.StoredNodeFactory;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference.BinaryTrie;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -31,23 +31,21 @@ import org.junit.jupiter.api.Test;
 /**
  * Focused tests for concrete {@link TrieNode} implementations.
  *
- * <p>Layer: stored node. PBT is non-sparse: {@link MemoryLeafNode#remove} returns {@link
+ * <p>Layer: stored node. PBT is non-sparse: {@link LeafNode#remove} returns {@link
  * TrieNode#empty()}, not a zero-valued leaf. Root hashes compared against {@link BinaryTrie}.
  */
-class StoredTrieNodeBehaviorTest {
+class TrieNodeBehaviorTest {
 
   private NodeUpdaterMock updater;
-  private StoredTrieNodeFactory factory;
+  private StoredNodeFactory factory;
 
   @BeforeEach
   void setUp() {
     updater = new NodeUpdaterMock();
-    factory = new StoredTrieNodeFactory(new NodeLoaderMock(updater));
+    factory = new StoredNodeFactory(new NodeLoaderMock(updater));
   }
 
-  /**
-   * Empty trie sentinel: get is always absent, put creates a leaf, remove is a no-op.
-   */
+  /** Empty trie sentinel: get is always absent, put creates a leaf, remove is a no-op. */
   @Nested
   class EmptyTrieNodeTests {
 
@@ -62,7 +60,7 @@ class StoredTrieNodeBehaviorTest {
       final Bytes key = Bytes.fromHexString("0x01");
       final byte[] value = Bytes32.repeat((byte) 1).toArrayUnsafe();
       final TrieNode leaf = TrieNode.empty().put(key.toArrayUnsafe(), key.size(), value, 0);
-      assertThat(leaf).isInstanceOf(MemoryLeafNode.class);
+      assertThat(leaf).isInstanceOf(LeafNode.class);
       assertThat(leaf.get(key.toArrayUnsafe(), key.size(), 0)).contains(value);
     }
 
@@ -77,17 +75,15 @@ class StoredTrieNodeBehaviorTest {
     }
   }
 
-  /**
-   * In-memory leaf CRUD: remove deletes the leaf, put replaces value on same key.
-   */
+  /** In-memory leaf CRUD: remove deletes the leaf, put replaces value on same key. */
   @Nested
-  class MemoryLeafNodeTests {
+  class InMemoryLeafNodeTests {
 
     @Test
     void removeMatchingKeyDeletesLeaf() {
       final Bytes key = Bytes.fromHexString("0xbeef");
       final byte[] value = Bytes32.repeat((byte) 0x55).toArrayUnsafe();
-      final TrieNode leaf = new MemoryLeafNode(key.toArrayUnsafe(), key.size(), value, false);
+      final TrieNode leaf = new LeafNode(key.toArrayUnsafe(), key.size(), value, false);
       assertThat(leaf.remove(key.toArrayUnsafe(), key.size(), 0)).isSameAs(TrieNode.empty());
     }
 
@@ -96,7 +92,7 @@ class StoredTrieNodeBehaviorTest {
       final Bytes key = Bytes.fromHexString("0xbeef");
       final Bytes other = Bytes.fromHexString("0xcafe");
       final byte[] value = Bytes32.repeat((byte) 1).toArrayUnsafe();
-      final TrieNode leaf = new MemoryLeafNode(key.toArrayUnsafe(), key.size(), value, false);
+      final TrieNode leaf = new LeafNode(key.toArrayUnsafe(), key.size(), value, false);
       assertThat(leaf.remove(other.toArrayUnsafe(), other.size(), 0)).isSameAs(leaf);
     }
 
@@ -105,17 +101,15 @@ class StoredTrieNodeBehaviorTest {
       final Bytes key = Bytes.fromHexString("0x01");
       final byte[] v1 = Bytes32.repeat((byte) 1).toArrayUnsafe();
       final byte[] v2 = Bytes32.repeat((byte) 2).toArrayUnsafe();
-      final TrieNode leaf = new MemoryLeafNode(key.toArrayUnsafe(), key.size(), v1, false);
+      final TrieNode leaf = new LeafNode(key.toArrayUnsafe(), key.size(), v1, false);
       final TrieNode updated = leaf.put(key.toArrayUnsafe(), key.size(), v2, 0);
       assertThat(updated.get(key.toArrayUnsafe(), key.size(), 0)).contains(v2);
     }
   }
 
-  /**
-   * Branch collapse to single child on remove; commit persists branch and children.
-   */
+  /** Branch collapse to single child on remove; commit persists branch and children. */
   @Nested
-  class MemoryBranchNodeTests {
+  class InMemoryBranchNodeTests {
 
     @Test
     void collapseToSingleChildOnRemove() {
@@ -125,12 +119,12 @@ class StoredTrieNodeBehaviorTest {
       final byte[] valueB = Bytes32.repeat((byte) 0x02).toArrayUnsafe();
 
       TrieNode root =
-          new MemoryLeafNode(keyA.toArrayUnsafe(), keyA.size(), valueA, false)
+          new LeafNode(keyA.toArrayUnsafe(), keyA.size(), valueA, false)
               .put(keyB.toArrayUnsafe(), keyB.size(), valueB, 0);
-      assertThat(root).isInstanceOf(MemoryBranchNode.class);
+      assertThat(root).isInstanceOf(BranchNode.class);
 
       root = root.remove(keyB.toArrayUnsafe(), keyB.size(), 0);
-      assertThat(root).isInstanceOf(MemoryLeafNode.class);
+      assertThat(root).isInstanceOf(LeafNode.class);
       assertThat(root.get(keyA.toArrayUnsafe(), keyA.size(), 0)).contains(valueA);
       assertThat(root.get(keyB.toArrayUnsafe(), keyB.size(), 0)).isEmpty();
     }
@@ -143,7 +137,7 @@ class StoredTrieNodeBehaviorTest {
       final byte[] valueB = Bytes32.repeat((byte) 0xBB).toArrayUnsafe();
 
       TrieNode root =
-          new MemoryLeafNode(keyA.toArrayUnsafe(), keyA.size(), valueA, false)
+          new LeafNode(keyA.toArrayUnsafe(), keyA.size(), valueA, false)
               .put(keyB.toArrayUnsafe(), keyB.size(), valueB, 0);
       root.commit(Bytes.EMPTY, updater);
       assertThat(updater.storage).isNotEmpty();
@@ -151,9 +145,7 @@ class StoredTrieNodeBehaviorTest {
     }
   }
 
-  /**
-   * Lazy-loaded {@link StoredTrieNode} proxy after commit; root hash matches {@link BinaryTrie}.
-   */
+  /** Lazy-loaded {@link StoredNode} proxy after commit; root hash matches {@link BinaryTrie}. */
   @Nested
   class StoredTrieNodeTests {
 
@@ -161,11 +153,11 @@ class StoredTrieNodeBehaviorTest {
     void lazyLoadFromFactory() {
       final Bytes key = Bytes.fromHexString("0xabcd");
       final byte[] value = Bytes32.repeat((byte) 0x77).toArrayUnsafe();
-      final MemoryLeafNode leaf = new MemoryLeafNode(key.toArrayUnsafe(), key.size(), value, false);
+      final LeafNode leaf = new LeafNode(key.toArrayUnsafe(), key.size(), value, false);
       leaf.commit(Bytes.EMPTY, updater);
       final Bytes32 hash = Bytes32.wrap(leaf.merkleHashBytes());
 
-      final StoredTrieNode proxy = new StoredTrieNode(factory, Bytes.EMPTY, hash);
+      final StoredNode proxy = new StoredNode(factory, Bytes.EMPTY, hash);
       assertThat(proxy.get(key.toArrayUnsafe(), key.size(), 0)).contains(value);
       assertThat(proxy.isClean()).isTrue();
     }
@@ -177,11 +169,11 @@ class StoredTrieNodeBehaviorTest {
       final BinaryTrie spec = new BinaryTrie();
       spec.put(key, value);
 
-      final MemoryLeafNode leaf =
-          new MemoryLeafNode(key.toArrayUnsafe(), key.size(), value.toArrayUnsafe(), false);
+      final LeafNode leaf =
+          new LeafNode(key.toArrayUnsafe(), key.size(), value.toArrayUnsafe(), false);
       leaf.commit(Bytes.EMPTY, updater);
-      final StoredTrieNode proxy =
-          new StoredTrieNode(factory, Bytes.EMPTY, Bytes32.wrap(leaf.merkleHashBytes()));
+      final StoredNode proxy =
+          new StoredNode(factory, Bytes.EMPTY, Bytes32.wrap(leaf.merkleHashBytes()));
       assertThat(Bytes32.wrap(proxy.merkleHashBytes())).isEqualTo(spec.root());
     }
   }

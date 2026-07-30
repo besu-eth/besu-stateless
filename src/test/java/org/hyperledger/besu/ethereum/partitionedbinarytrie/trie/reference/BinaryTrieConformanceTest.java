@@ -376,6 +376,31 @@ class BinaryTrieConformanceTest {
   }
 
   @Test
+  void mutableTrieMergesBranchPrefixesAfterRemove() {
+    final byte[] stem = new byte[33];
+    stem[0] = (byte) 0xFF;
+    for (int i = 1; i < 33; i++) {
+      stem[i] = (byte) 0xAB;
+    }
+    final Bytes key0 = Bytes.concatenate(Bytes.wrap(stem), Bytes.of((byte) 0));
+    final Bytes key1 = Bytes.concatenate(Bytes.wrap(stem), Bytes.of((byte) 1));
+    final Bytes key128 = Bytes.concatenate(Bytes.wrap(stem), Bytes.of((byte) 0x80));
+    final Bytes32 value = Bytes32.repeat((byte) 0x44);
+
+    final BinaryTrie rebuilt = new BinaryTrie();
+    final MutableBinaryTrie mutable = new MutableBinaryTrie();
+    for (final Bytes key : List.of(key0, key1, key128)) {
+      rebuilt.put(key, value);
+      mutable.put(key, value);
+    }
+
+    rebuilt.remove(key128);
+    mutable.remove(key128);
+
+    assertThat(mutable.root()).isEqualTo(rebuilt.root());
+  }
+
+  @Test
   void overwritingAValueRecommitsToTheFinalValue() {
     final byte[] stem = new byte[33];
     stem[0] = 0;

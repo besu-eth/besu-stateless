@@ -18,8 +18,9 @@
  * Factories for loading trie nodes and constructing trie instances.
  *
  * <ul>
- *   <li>{@link org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.factory.StoredTrieNodeFactory}
- *       — node loading and binary codec (internal to trie construction)
+ *   <li>{@link
+ *       org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.factory.StoredNodeFactory} —
+ *       node loading and decoding from the persisted {@code NodeLoader} representation
  *   <li>{@link
  *       org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.factory.PartitionedBinaryTrieFactory}
  *       — single entry point for sequential and parallel stored tries

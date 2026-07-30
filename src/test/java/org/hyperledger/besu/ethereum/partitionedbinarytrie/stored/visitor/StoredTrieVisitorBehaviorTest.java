@@ -19,11 +19,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.factory.NodeLoaderMock;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.factory.NodeUpdaterMock;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.factory.StoredTrieNodeFactory;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.factory.StoredNodeFactory;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.BranchNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.EmptyTrieNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.MemoryBranchNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.MemoryLeafNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.StoredTrieNode;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.LeafNode;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.StoredNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.TrieNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference.BinaryTrie;
 
@@ -42,17 +42,15 @@ import org.junit.jupiter.api.Test;
 class StoredTrieVisitorBehaviorTest {
 
   private NodeUpdaterMock updater;
-  private StoredTrieNodeFactory factory;
+  private StoredNodeFactory factory;
 
   @BeforeEach
   void setUp() {
     updater = new NodeUpdaterMock();
-    factory = new StoredTrieNodeFactory(new NodeLoaderMock(updater));
+    factory = new StoredNodeFactory(new NodeLoaderMock(updater));
   }
 
-  /**
-   * Lookup paths through {@link GetVisitor} on empty, leaf, and branch nodes.
-   */
+  /** Lookup paths through {@link GetVisitor} on empty, leaf, and branch nodes. */
   @Nested
   class GetVisitorTests {
 
@@ -70,7 +68,7 @@ class StoredTrieVisitorBehaviorTest {
     void matchingLeafReturnsLeafWithValue() {
       final Bytes key = Bytes.fromHexString("0xbeef");
       final byte[] value = Bytes32.repeat((byte) 0x55).toArrayUnsafe();
-      final MemoryLeafNode leaf = new MemoryLeafNode(key.toArrayUnsafe(), key.size(), value, false);
+      final LeafNode leaf = new LeafNode(key.toArrayUnsafe(), key.size(), value, false);
       final TrieNode result = leaf.accept(visitor, key.toArrayUnsafe(), key.size(), 0);
       assertThat(result).isSameAs(leaf);
       assertThat(result.leafValue()).contains(value);
@@ -81,7 +79,7 @@ class StoredTrieVisitorBehaviorTest {
       final Bytes key = Bytes.fromHexString("0xbeef");
       final Bytes other = Bytes.fromHexString("0xcafe");
       final byte[] value = Bytes32.repeat((byte) 1).toArrayUnsafe();
-      final MemoryLeafNode leaf = new MemoryLeafNode(key.toArrayUnsafe(), key.size(), value, false);
+      final LeafNode leaf = new LeafNode(key.toArrayUnsafe(), key.size(), value, false);
       final TrieNode result = leaf.accept(visitor, other.toArrayUnsafe(), other.size(), 0);
       assertThat(result).isInstanceOf(EmptyTrieNode.class);
     }
@@ -92,7 +90,7 @@ class StoredTrieVisitorBehaviorTest {
       final Bytes keyB = Bytes.fromHexString("0x20");
       final byte[] valueB = Bytes32.repeat((byte) 0xBB).toArrayUnsafe();
       final TrieNode root =
-          new MemoryLeafNode(
+          new LeafNode(
                   keyA.toArrayUnsafe(),
                   keyA.size(),
                   Bytes32.repeat((byte) 0xAA).toArrayUnsafe(),
@@ -103,9 +101,7 @@ class StoredTrieVisitorBehaviorTest {
     }
   }
 
-  /**
-   * Insert and update semantics via {@link PutVisitor}, including leaf-to-branch splits.
-   */
+  /** Insert and update semantics via {@link PutVisitor}, including leaf-to-branch splits. */
   @Nested
   class PutVisitorTests {
 
@@ -115,7 +111,7 @@ class StoredTrieVisitorBehaviorTest {
       final byte[] value = Bytes32.repeat((byte) 2).toArrayUnsafe();
       final TrieNode root =
           TrieNode.empty().accept(new PutVisitor(value), key.toArrayUnsafe(), key.size(), 0);
-      assertThat(root).isInstanceOf(MemoryLeafNode.class);
+      assertThat(root).isInstanceOf(LeafNode.class);
       assertThat(root.leafValue()).contains(value);
     }
 
@@ -139,7 +135,7 @@ class StoredTrieVisitorBehaviorTest {
       TrieNode root =
           TrieNode.empty().accept(new PutVisitor(valueA), keyA.toArrayUnsafe(), keyA.size(), 0);
       root = root.accept(new PutVisitor(valueB), keyB.toArrayUnsafe(), keyB.size(), 0);
-      assertThat(root).isInstanceOf(MemoryBranchNode.class);
+      assertThat(root).isInstanceOf(BranchNode.class);
       assertThat(root.accept(new GetVisitor(), keyA.toArrayUnsafe(), keyA.size(), 0).leafValue())
           .contains(valueA);
       assertThat(root.accept(new GetVisitor(), keyB.toArrayUnsafe(), keyB.size(), 0).leafValue())
@@ -147,9 +143,7 @@ class StoredTrieVisitorBehaviorTest {
     }
   }
 
-  /**
-   * Deletion and branch collapse via {@link RemoveVisitor}.
-   */
+  /** Deletion and branch collapse via {@link RemoveVisitor}. */
   @Nested
   class RemoveVisitorTests {
 
@@ -166,7 +160,7 @@ class StoredTrieVisitorBehaviorTest {
     void matchingLeafReturnsEmptyNode() {
       final Bytes key = Bytes.fromHexString("0xbeef");
       final byte[] value = Bytes32.repeat((byte) 0x55).toArrayUnsafe();
-      final MemoryLeafNode leaf = new MemoryLeafNode(key.toArrayUnsafe(), key.size(), value, false);
+      final LeafNode leaf = new LeafNode(key.toArrayUnsafe(), key.size(), value, false);
       final TrieNode result = leaf.accept(visitor, key.toArrayUnsafe(), key.size(), 0);
       assertThat(result).isInstanceOf(EmptyTrieNode.class);
     }
@@ -176,7 +170,7 @@ class StoredTrieVisitorBehaviorTest {
       final Bytes key = Bytes.fromHexString("0xbeef");
       final Bytes other = Bytes.fromHexString("0xcafe");
       final byte[] value = Bytes32.repeat((byte) 1).toArrayUnsafe();
-      final MemoryLeafNode leaf = new MemoryLeafNode(key.toArrayUnsafe(), key.size(), value, false);
+      final LeafNode leaf = new LeafNode(key.toArrayUnsafe(), key.size(), value, false);
       final TrieNode result = leaf.accept(visitor, other.toArrayUnsafe(), other.size(), 0);
       assertThat(result).isSameAs(leaf);
     }
@@ -192,10 +186,10 @@ class StoredTrieVisitorBehaviorTest {
           TrieNode.empty()
               .accept(new PutVisitor(valueA), keyA.toArrayUnsafe(), keyA.size(), 0)
               .accept(new PutVisitor(valueB), keyB.toArrayUnsafe(), keyB.size(), 0);
-      assertThat(root).isInstanceOf(MemoryBranchNode.class);
+      assertThat(root).isInstanceOf(BranchNode.class);
 
       root = root.accept(visitor, keyB.toArrayUnsafe(), keyB.size(), 0);
-      assertThat(root).isInstanceOf(MemoryLeafNode.class);
+      assertThat(root).isInstanceOf(LeafNode.class);
       assertThat(root.accept(new GetVisitor(), keyA.toArrayUnsafe(), keyA.size(), 0).leafValue())
           .contains(valueA);
       assertThat(root.accept(new GetVisitor(), keyB.toArrayUnsafe(), keyB.size(), 0).leafValue())
@@ -214,9 +208,7 @@ class StoredTrieVisitorBehaviorTest {
     }
   }
 
-  /**
-   * Persistence of dirty nodes via {@link CommitVisitor}; root hash matches {@link BinaryTrie}.
-   */
+  /** Persistence of dirty nodes via {@link CommitVisitor}; root hash matches {@link BinaryTrie}. */
   @Nested
   class CommitVisitorTests {
 
@@ -224,7 +216,7 @@ class StoredTrieVisitorBehaviorTest {
     void persistsDirtyLeaf() {
       final Bytes key = Bytes.fromHexString("0x0102");
       final byte[] value = Bytes32.repeat((byte) 0x33).toArrayUnsafe();
-      final MemoryLeafNode leaf = new MemoryLeafNode(key.toArrayUnsafe(), key.size(), value, false);
+      final LeafNode leaf = new LeafNode(key.toArrayUnsafe(), key.size(), value, false);
       leaf.accept(Bytes.EMPTY, new CommitVisitor(updater));
       assertThat(updater.storage).isNotEmpty();
       assertThat(leaf.isClean()).isTrue();
@@ -234,7 +226,7 @@ class StoredTrieVisitorBehaviorTest {
     void skipsCleanLeaf() {
       final Bytes key = Bytes.fromHexString("0x01");
       final byte[] value = Bytes32.repeat((byte) 1).toArrayUnsafe();
-      final MemoryLeafNode leaf = new MemoryLeafNode(key.toArrayUnsafe(), key.size(), value, true);
+      final LeafNode leaf = new LeafNode(key.toArrayUnsafe(), key.size(), value, true);
       leaf.accept(Bytes.EMPTY, new CommitVisitor(updater));
       assertThat(updater.storage).isEmpty();
     }
@@ -258,10 +250,10 @@ class StoredTrieVisitorBehaviorTest {
     void storedNodeReloadsAfterCommit() {
       final Bytes key = Bytes.fromHexString("0xabcd");
       final byte[] value = Bytes32.repeat((byte) 0x77).toArrayUnsafe();
-      final MemoryLeafNode leaf = new MemoryLeafNode(key.toArrayUnsafe(), key.size(), value, false);
+      final LeafNode leaf = new LeafNode(key.toArrayUnsafe(), key.size(), value, false);
       leaf.accept(Bytes.EMPTY, new CommitVisitor(updater));
       final Bytes32 hash = Bytes32.wrap(leaf.merkleHashBytes());
-      final StoredTrieNode proxy = new StoredTrieNode(factory, Bytes.EMPTY, hash);
+      final StoredNode proxy = new StoredNode(factory, Bytes.EMPTY, hash);
       proxy.accept(Bytes.EMPTY, new CommitVisitor(updater));
       assertThat(proxy.isClean()).isTrue();
       assertThat(proxy.accept(new GetVisitor(), key.toArrayUnsafe(), key.size(), 0).leafValue())

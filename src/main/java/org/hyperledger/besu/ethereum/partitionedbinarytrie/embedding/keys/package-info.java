@@ -14,7 +14,5 @@
  *
  */
 
-/**
- * EIP-8297 zone-based trie key derivation for accounts, storage slots, and contract bytecode.
- */
+/** EIP-8297 zone-based trie key derivation for accounts, storage slots, and contract bytecode. */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.keys;

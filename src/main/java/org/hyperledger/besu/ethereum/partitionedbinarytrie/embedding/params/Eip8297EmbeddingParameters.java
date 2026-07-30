@@ -16,7 +16,7 @@
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.params;
 
 /** EIP-8297 embedding constants for zone layout, key lengths, and header offsets. */
-public final class EmbeddingParameters {
+public final class Eip8297EmbeddingParameters {
 
   /** Sub-index for the basic-data leaf in the account header stem. */
   public static final int BASIC_DATA_LEAF_KEY = 0;
@@ -63,5 +63,5 @@ public final class EmbeddingParameters {
   /** Opcode value of {@code PUSH32}. */
   public static final int PUSH32 = PUSH_OFFSET + 32;
 
-  private EmbeddingParameters() {}
+  private Eip8297EmbeddingParameters() {}
 }

@@ -23,7 +23,7 @@ import org.apache.tuweni.bytes.Bytes;
  * <p>Distinct from EIP-8297 hash preimages (BLAKE3 domain tags via {@code internal}): persistence
  * uses explicit key lengths and child hashes, not BLAKE3 domain tags.
  */
-public final class TrieNodeCodec {
+public final class StoredNodeCodec {
 
   /** Serialization tag for branch nodes. */
   public static final byte BRANCH_TAG = 0x10;
@@ -31,7 +31,7 @@ public final class TrieNodeCodec {
   /** Serialization tag for leaf nodes. */
   public static final byte LEAF_TAG = 0x11;
 
-  private TrieNodeCodec() {}
+  private StoredNodeCodec() {}
 
   public static Bytes childLocation(
       final Bytes parent, final byte[] prefixBits, final int prefixLen, final int splitBit) {

@@ -16,14 +16,14 @@
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node;
 
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.bytes.ByteTrieOps;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.codec.TrieNodeCodec;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.codec.StoredNodeCodec;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.visitor.LocationNodeVisitor;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.visitor.PathNodeVisitor;
 
 import org.apache.tuweni.bytes.Bytes;
 
 /** In-memory branch node with a compressed bit prefix and left/right children. */
-public final class MemoryBranchNode extends TrieNode {
+public final class BranchNode extends TrieNode {
 
   private final byte[] prefixBits;
   private final int prefixLen;
@@ -31,7 +31,7 @@ public final class MemoryBranchNode extends TrieNode {
   private TrieNode right;
   private byte[] hash;
 
-  public MemoryBranchNode(
+  public BranchNode(
       final byte[] prefixBits,
       final int prefixLen,
       final TrieNode left,
@@ -71,22 +71,27 @@ public final class MemoryBranchNode extends TrieNode {
 
   TrieNode maybeFlatten(final TrieNode survivor, final byte splitBit) {
     final TrieNode loaded =
-        survivor instanceof StoredTrieNode ? ((StoredTrieNode) survivor).load() : survivor;
-    if (loaded instanceof MemoryBranchNode branch) {
+        survivor instanceof StoredNode ? ((StoredNode) survivor).load() : survivor;
+    if (loaded instanceof BranchNode branch) {
       final int mergedLen = prefixLen + 1 + branch.prefixLen;
       final byte[] merged = new byte[mergedLen];
       System.arraycopy(prefixBits, 0, merged, 0, prefixLen);
       merged[prefixLen] = splitBit;
       System.arraycopy(branch.prefixBits, 0, merged, prefixLen + 1, branch.prefixLen);
-      return new MemoryBranchNode(
-          merged, mergedLen, branch.leftChild(), branch.rightChild(), false);
+      return new BranchNode(merged, mergedLen, branch.leftChild(), branch.rightChild(), false);
     }
     return survivor;
   }
 
   @Override
+  public void markDirty() {
+    hash = null;
+    super.markDirty();
+  }
+
+  @Override
   public byte[] merkleHashBytes() {
-    if (hash == null || !clean) {
+    if (hash == null) {
       hash =
           ByteTrieOps.branchHash(
               prefixBits, prefixLen, left.merkleHashBytes(), right.merkleHashBytes());
@@ -96,7 +101,7 @@ public final class MemoryBranchNode extends TrieNode {
 
   @Override
   public Bytes encode() {
-    return TrieNodeCodec.encodeBranch(
+    return StoredNodeCodec.encodeBranch(
         prefixBits, prefixLen, left.merkleHashBytes(), right.merkleHashBytes());
   }
 

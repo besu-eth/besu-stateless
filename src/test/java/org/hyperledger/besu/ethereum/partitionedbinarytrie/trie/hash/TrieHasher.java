@@ -41,14 +41,16 @@ public final class TrieHasher {
   /** Compute the hash committing to {@code node} and everything below it. */
   public static Bytes32 merkleize(final BinaryNode node) {
     return switch (node) {
-      case final LeafNode leaf -> blake3Hash(
-          Bytes.concatenate(Bytes.of(TrieConstants.LEAF_NODE_TAG), leaf.key(), leaf.value()));
-      case final BranchNode branch -> blake3Hash(
-          Bytes.concatenate(
-              Bytes.of(TrieConstants.BRANCH_NODE_TAG),
-              PrefixEncoder.encodeBitPrefix(branch.prefix()),
-              merkleize(branch.left()),
-              merkleize(branch.right())));
+      case final LeafNode leaf ->
+          blake3Hash(
+              Bytes.concatenate(Bytes.of(TrieConstants.LEAF_NODE_TAG), leaf.key(), leaf.value()));
+      case final BranchNode branch ->
+          blake3Hash(
+              Bytes.concatenate(
+                  Bytes.of(TrieConstants.BRANCH_NODE_TAG),
+                  PrefixEncoder.encodeBitPrefix(branch.prefix()),
+                  merkleize(branch.left()),
+                  merkleize(branch.right())));
     };
   }
 }

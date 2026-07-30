@@ -17,8 +17,6 @@ package org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.core;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.TrieConstants;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.core.PartitionedBinaryTrie;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.factory.NodeLoaderMock;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.factory.NodeUpdaterMock;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.proof.TrieNodeProofVerifier;
@@ -84,11 +82,9 @@ class StoredPartitionedBinaryTrieProofTest {
       final java.util.List<Bytes> proofNodes,
       final Optional<byte[]> expectedValue) {
     final Optional<Optional<byte[]>> verified =
-        TrieNodeProofVerifier.verifyAndGetValue(
-            root, key.toArrayUnsafe(), key.size(), proofNodes);
+        TrieNodeProofVerifier.verifyAndGetValue(root, key.toArrayUnsafe(), key.size(), proofNodes);
     assertThat(verified).isPresent();
-    assertThat(verified.get().map(Bytes::wrap))
-        .isEqualTo(expectedValue.map(Bytes::wrap));
+    assertThat(verified.get().map(Bytes::wrap)).isEqualTo(expectedValue.map(Bytes::wrap));
   }
 
   @Test
@@ -110,7 +106,11 @@ class StoredPartitionedBinaryTrieProofTest {
     assertThat(proof.getProofRelatedNodes()).isNotEmpty();
     assertThat(TrieNodeProofVerifier.verifyRoot(trie.getRootHash(), proof.getProofRelatedNodes()))
         .isTrue();
-    assertVerifiedValue(trie.getRootHash(), key1, proof.getProofRelatedNodes(), Optional.of(value1.toArrayUnsafe()));
+    assertVerifiedValue(
+        trie.getRootHash(),
+        key1,
+        proof.getProofRelatedNodes(),
+        Optional.of(value1.toArrayUnsafe()));
   }
 
   @Test
@@ -147,13 +147,13 @@ class StoredPartitionedBinaryTrieProofTest {
     trie.commit(nodeUpdater);
     final Bytes32 root = trie.getRootHash();
 
-    final StoredPartitionedBinaryTrie reloaded =
-        new StoredPartitionedBinaryTrie(nodeLoader, root);
+    final StoredPartitionedBinaryTrie reloaded = new StoredPartitionedBinaryTrie(nodeLoader, root);
     final Proof<Bytes> proof = reloaded.getValueWithProof(key);
 
     assertThat(proof.getValue()).contains(value);
     assertThat(TrieNodeProofVerifier.verifyRoot(root, proof.getProofRelatedNodes())).isTrue();
-    assertVerifiedValue(root, key, proof.getProofRelatedNodes(), Optional.of(value.toArrayUnsafe()));
+    assertVerifiedValue(
+        root, key, proof.getProofRelatedNodes(), Optional.of(value.toArrayUnsafe()));
   }
 
   @Test
@@ -166,17 +166,18 @@ class StoredPartitionedBinaryTrieProofTest {
     trie.put(keyBytes, key.size(), value.toArrayUnsafe());
     final Proof<byte[]> coreProof = trie.getValueWithProof(keyBytes, key.size());
 
-    final StoredPartitionedBinaryTrie storedTrie =
-        new StoredPartitionedBinaryTrie(nodeLoader);
+    final StoredPartitionedBinaryTrie storedTrie = new StoredPartitionedBinaryTrie(nodeLoader);
     storedTrie.put(key, value);
     final Proof<Bytes> storedProof = storedTrie.getValueWithProof(key);
 
     assertThat(coreProof.getValue()).contains(value.toArrayUnsafe());
     assertThat(storedProof.getValue()).contains(value);
-    assertThat(TrieNodeProofVerifier.verifyRoot(trie.getRootHash(), coreProof.getProofRelatedNodes()))
+    assertThat(
+            TrieNodeProofVerifier.verifyRoot(trie.getRootHash(), coreProof.getProofRelatedNodes()))
         .isTrue();
-    assertThat(TrieNodeProofVerifier.verifyRoot(
-            storedTrie.getRootHash(), storedProof.getProofRelatedNodes()))
+    assertThat(
+            TrieNodeProofVerifier.verifyRoot(
+                storedTrie.getRootHash(), storedProof.getProofRelatedNodes()))
         .isTrue();
   }
 }

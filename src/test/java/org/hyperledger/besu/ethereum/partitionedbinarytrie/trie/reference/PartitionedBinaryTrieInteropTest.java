@@ -17,12 +17,11 @@ package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.codec.BasicDataEncoder;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.codec.AccountBasicDataEncoder;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.codec.CodeChunkifier;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.keys.TrieKeyDerivation;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.keys.Eip8297TreeKeyDerivation;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.TrieConstants;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.core.PartitionedBinaryTrie;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference.BinaryTrie;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.hash.TrieHasher;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -34,12 +33,12 @@ import org.junit.jupiter.api.Test;
  * Cross-client and execution-specs interop vectors for EIP-8297.
  *
  * <p>Layer: interop (embedding + stored core vs reference). Neutral oracle: {@code
- * ethereum.binary_trie} on the {@code bin-trie} branch of execution-specs (kevaundray/execution-specs#9).
- * This library follows that branch/leaf model with domain-tagged BLAKE3 preimages and 34/66-byte
- * variable-length embedding keys.
+ * ethereum.binary_trie} on the {@code bin-trie} branch of execution-specs
+ * (kevaundray/execution-specs#9). This library follows that branch/leaf model with domain-tagged
+ * BLAKE3 preimages and 34/66-byte variable-length embedding keys.
  *
- * <p><b>Nethermind PR 12573 is not directly comparable for state roots.</b> Its production trie uses
- * a stem-trie + leaf-blob layout ({@code EipReferenceTree}, {@code PbtPartitionRoots}) with:
+ * <p><b>Nethermind PR 12573 is not directly comparable for state roots.</b> Its production trie
+ * uses a stem-trie + leaf-blob layout ({@code EipReferenceTree}, {@code PbtPartitionRoots}) with:
  *
  * <ul>
  *   <li>32-byte keys (31-byte stem + sub-index) instead of 34/66-byte variable-length keys
@@ -50,8 +49,8 @@ import org.junit.jupiter.api.Test;
  *
  * <p>Key derivation, basic-data encoding, and code chunkification <em>do</em> align with the EIP
  * test vectors that both clients pin independently ({@code KeyDerivationTests} in Nethermind,
- * {@link BinaryTrieReferenceVectorsTest} here). Root comparison requires spec alignment on trie structure
- * first.
+ * {@link BinaryTrieReferenceVectorsTest} here). Root comparison requires spec alignment on trie
+ * structure first.
  */
 class PartitionedBinaryTrieInteropTest {
 
@@ -107,11 +106,10 @@ class PartitionedBinaryTrieInteropTest {
 
   @Test
   void accountBasicDataAndCodeHashRoot() {
-    final Bytes basicDataKey = TrieKeyDerivation.getTreeKeyForBasicData(ADDRESS);
-    final Bytes codeHashKey = TrieKeyDerivation.getTreeKeyForCodeHash(ADDRESS);
-    final Bytes32 basicData =
-        BasicDataEncoder.encodeBasicData(1, 42, UInt256.valueOf(1000));
-    final Bytes32 codeHash = TrieKeyDerivation.EMPTY_CODE_HASH;
+    final Bytes basicDataKey = Eip8297TreeKeyDerivation.getTreeKeyForBasicData(ADDRESS);
+    final Bytes codeHashKey = Eip8297TreeKeyDerivation.getTreeKeyForCodeHash(ADDRESS);
+    final Bytes32 basicData = AccountBasicDataEncoder.encodeBasicData(1, 42, UInt256.valueOf(1000));
+    final Bytes32 codeHash = Eip8297TreeKeyDerivation.EMPTY_CODE_HASH;
 
     final BinaryTrie specTrie = new BinaryTrie();
     specTrie.put(basicDataKey, basicData);
@@ -126,10 +124,12 @@ class PartitionedBinaryTrieInteropTest {
 
   @Test
   void multiKeyEmbeddingScenarioRoot() {
-    final Bytes basicDataKey = TrieKeyDerivation.getTreeKeyForBasicData(ADDRESS);
-    final Bytes storageKey = TrieKeyDerivation.getTreeKeyForStorageSlot(ADDRESS, UInt256.valueOf(5));
-    final Bytes32 basicData = BasicDataEncoder.encodeBasicData(0, 0, UInt256.ZERO);
-    final Bytes32 slotValue = Bytes32.fromHexString("00000000000000000000000000000000000000000000000000000000deadbeef");
+    final Bytes basicDataKey = Eip8297TreeKeyDerivation.getTreeKeyForBasicData(ADDRESS);
+    final Bytes storageKey =
+        Eip8297TreeKeyDerivation.getTreeKeyForStorageSlot(ADDRESS, UInt256.valueOf(5));
+    final Bytes32 basicData = AccountBasicDataEncoder.encodeBasicData(0, 0, UInt256.ZERO);
+    final Bytes32 slotValue =
+        Bytes32.fromHexString("00000000000000000000000000000000000000000000000000000000deadbeef");
 
     final BinaryTrie specTrie = new BinaryTrie();
     specTrie.put(basicDataKey, basicData);
@@ -152,17 +152,17 @@ class PartitionedBinaryTrieInteropTest {
   void sharedEipEmbeddingVectorsAlignWithNethermindKeyDerivation() {
     // Pinned independently in Nethermind KeyDerivationTests and execution-specs
     // test_binary_trie_embedding.py — stems/sub-indices only, not trie roots.
-    assertThat(TrieKeyDerivation.getTreeKeyForBasicData(ADDRESS))
+    assertThat(Eip8297TreeKeyDerivation.getTreeKeyForBasicData(ADDRESS))
         .isEqualTo(
             Bytes.fromHexString(
                 "00d9ae2d236f8713a5bf808cda488167a56cc97e4b83006f42b1c06c0c3f053bbf00"));
-    assertThat(TrieKeyDerivation.getTreeKeyForStorageSlot(ADDRESS, UInt256.valueOf(5)))
+    assertThat(Eip8297TreeKeyDerivation.getTreeKeyForStorageSlot(ADDRESS, UInt256.valueOf(5)))
         .isEqualTo(
             Bytes.fromHexString(
                 "00d9ae2d236f8713a5bf808cda488167a56cc97e4b83006f42b1c06c0c3f053bbf45"));
 
     final Bytes storage1000Key =
-        TrieKeyDerivation.getTreeKeyForStorageSlot(ADDRESS, UInt256.valueOf(1000));
+        Eip8297TreeKeyDerivation.getTreeKeyForStorageSlot(ADDRESS, UInt256.valueOf(1000));
     assertThat(storage1000Key.slice(storage1000Key.size() - 4, 4))
         .isEqualTo(Bytes.fromHexString("7650f9e8"));
 
@@ -178,12 +178,13 @@ class PartitionedBinaryTrieInteropTest {
                 (byte) 'o',
                 (byte) 'd',
                 (byte) 'e'));
-    final Bytes codeChunk300Key = TrieKeyDerivation.getTreeKeyForCodeChunk(ADDRESS, codeHash, 300);
+    final Bytes codeChunk300Key =
+        Eip8297TreeKeyDerivation.getTreeKeyForCodeChunk(ADDRESS, codeHash, 300);
     assertThat(codeChunk300Key.slice(codeChunk300Key.size() - 4, 4))
         .isEqualTo(Bytes.fromHexString("a4ecadac"));
 
     assertThat(
-            BasicDataEncoder.encodeBasicData(
+            AccountBasicDataEncoder.encodeBasicData(
                 0x11223344L,
                 0x5566778899aabbccl,
                 UInt256.fromHexString("0123456789abcdef0123456789abcdef")))

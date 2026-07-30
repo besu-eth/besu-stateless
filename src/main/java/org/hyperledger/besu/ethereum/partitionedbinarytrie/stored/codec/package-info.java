@@ -14,7 +14,5 @@
  *
  */
 
-/**
- * Binary serialization for stored trie nodes (branch tag {@code 0x10}, leaf tag {@code 0x11}).
- */
+/** Binary serialization for stored trie nodes (branch tag {@code 0x10}, leaf tag {@code 0x11}). */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.codec;

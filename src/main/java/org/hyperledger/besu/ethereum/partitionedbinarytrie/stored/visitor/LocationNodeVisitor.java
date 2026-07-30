@@ -15,10 +15,10 @@
  */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.visitor;
 
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.BranchNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.EmptyTrieNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.MemoryBranchNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.MemoryLeafNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.StoredTrieNode;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.LeafNode;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.StoredNode;
 
 import org.apache.tuweni.bytes.Bytes;
 
@@ -34,11 +34,11 @@ public interface LocationNodeVisitor {
   void visit(Bytes location, EmptyTrieNode emptyNode);
 
   /** Visits a leaf node at {@code location}. */
-  void visit(Bytes location, MemoryLeafNode leafNode);
+  void visit(Bytes location, LeafNode leafNode);
 
   /** Visits a branch node at {@code location}. */
-  void visit(Bytes location, MemoryBranchNode branchNode);
+  void visit(Bytes location, BranchNode branchNode);
 
   /** Visits a stored node proxy at {@code location}. */
-  void visit(Bytes location, StoredTrieNode storedNode);
+  void visit(Bytes location, StoredNode storedNode);
 }

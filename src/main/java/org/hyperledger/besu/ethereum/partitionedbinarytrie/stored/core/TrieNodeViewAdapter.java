@@ -16,8 +16,8 @@
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.core;
 
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.TrieConstants;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.MemoryBranchNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.MemoryLeafNode;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.BranchNode;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.LeafNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.TrieNode;
 
 import java.util.Optional;
@@ -46,17 +46,17 @@ final class TrieNodeViewAdapter implements PartitionedBinaryTrie.TrieNodeView {
 
   @Override
   public boolean isLeaf() {
-    return node instanceof MemoryLeafNode;
+    return node instanceof LeafNode;
   }
 
   @Override
   public boolean isBranch() {
-    return node instanceof MemoryBranchNode;
+    return node instanceof BranchNode;
   }
 
   @Override
   public Optional<Bytes> getKey() {
-    if (node instanceof MemoryLeafNode leaf) {
+    if (node instanceof LeafNode leaf) {
       return Optional.of(Bytes.wrap(leaf.keyBytes(), 0, leaf.keyLength()));
     }
     return Optional.empty();
@@ -64,7 +64,7 @@ final class TrieNodeViewAdapter implements PartitionedBinaryTrie.TrieNodeView {
 
   @Override
   public Optional<Bytes> getValue() {
-    if (node instanceof MemoryLeafNode leaf) {
+    if (node instanceof LeafNode leaf) {
       return Optional.of(Bytes.wrap(leaf.valueBytes()));
     }
     return Optional.empty();

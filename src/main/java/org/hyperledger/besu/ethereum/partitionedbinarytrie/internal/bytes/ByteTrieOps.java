@@ -42,7 +42,6 @@ public final class ByteTrieOps {
    */
   public static byte[] expandKeyBits(final byte[] key, final int keyLen) {
     final byte[] bits = BIT_BUFFER.get();
-    final int bitCount = keyLen * 8;
     for (int byteIndex = 0; byteIndex < keyLen; byteIndex++) {
       final int value = key[byteIndex] & 0xFF;
       final int base = byteIndex * 8;
@@ -55,8 +54,6 @@ public final class ByteTrieOps {
       bits[base + 6] = (byte) ((value >> 1) & 1);
       bits[base + 7] = (byte) (value & 1);
     }
-    // Shorter keys reuse the thread-local buffer; clear stale bits from prior longer keys.
-    java.util.Arrays.fill(bits, bitCount, bits.length, (byte) 0);
     return bits;
   }
 

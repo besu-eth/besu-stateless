@@ -17,12 +17,12 @@ package org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.core;
 
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.TrieConstants;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.bytes.ByteTrieOps;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.codec.TrieNodeCodec;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.factory.StoredTrieNodeFactory;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.codec.StoredNodeCodec;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.factory.StoredNodeFactory;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.BranchNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.EmptyTrieNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.MemoryBranchNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.MemoryLeafNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.StoredTrieNode;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.LeafNode;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.StoredNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.TrieNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.visitor.ParallelCommitVisitor;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.visitor.PathNodeVisitor;
@@ -47,7 +47,8 @@ import org.apache.tuweni.bytes.Bytes32;
 /**
  * Parallel stored partitioned binary trie that batches updates and applies them concurrently.
  *
- * <p>Mirrors Besu {@link org.hyperledger.besu.ethereum.trie.patricia.ParallelStoredMerklePatriciaTrie}.
+ * <p>Mirrors Besu {@link
+ * org.hyperledger.besu.ethereum.trie.patricia.ParallelStoredMerklePatriciaTrie}.
  */
 @SuppressWarnings({"rawtypes", "ThreadPriorityCheck"})
 public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinaryTrie {
@@ -62,38 +63,37 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
     this(nodeLoader, DEFAULT_FORK_JOIN_POOL);
   }
 
-  public ParallelStoredPartitionedBinaryTrie(
-      final NodeLoader nodeLoader, final Bytes32 rootHash) {
+  public ParallelStoredPartitionedBinaryTrie(final NodeLoader nodeLoader, final Bytes32 rootHash) {
     this(nodeLoader, rootHash, DEFAULT_FORK_JOIN_POOL);
   }
 
   public ParallelStoredPartitionedBinaryTrie(
       final NodeLoader nodeLoader, final ForkJoinPool forkJoinPool) {
-    this(new StoredTrieNodeFactory(nodeLoader), forkJoinPool);
+    this(new StoredNodeFactory(nodeLoader), forkJoinPool);
   }
 
   public ParallelStoredPartitionedBinaryTrie(
       final NodeLoader nodeLoader, final Bytes32 rootHash, final ForkJoinPool forkJoinPool) {
-    this(new StoredTrieNodeFactory(nodeLoader), rootHash, forkJoinPool);
+    this(new StoredNodeFactory(nodeLoader), rootHash, forkJoinPool);
   }
 
-  public ParallelStoredPartitionedBinaryTrie(final StoredTrieNodeFactory nodeFactory) {
+  public ParallelStoredPartitionedBinaryTrie(final StoredNodeFactory nodeFactory) {
     this(nodeFactory, DEFAULT_FORK_JOIN_POOL);
   }
 
   public ParallelStoredPartitionedBinaryTrie(
-      final StoredTrieNodeFactory nodeFactory, final ForkJoinPool forkJoinPool) {
+      final StoredNodeFactory nodeFactory, final ForkJoinPool forkJoinPool) {
     super(nodeFactory);
     this.forkJoinPool = forkJoinPool;
   }
 
   public ParallelStoredPartitionedBinaryTrie(
-      final StoredTrieNodeFactory nodeFactory, final Bytes32 rootHash) {
+      final StoredNodeFactory nodeFactory, final Bytes32 rootHash) {
     this(nodeFactory, rootHash, DEFAULT_FORK_JOIN_POOL);
   }
 
   public ParallelStoredPartitionedBinaryTrie(
-      final StoredTrieNodeFactory nodeFactory,
+      final StoredNodeFactory nodeFactory,
       final Bytes32 rootHash,
       final ForkJoinPool forkJoinPool) {
     super(nodeFactory, rootHash);
@@ -102,18 +102,24 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
 
   @Override
   public void put(final byte[] key, final int keyLen, final byte[] value) {
-    pendingUpdates.put(Bytes.wrap(key, 0, keyLen), new Direct(Optional.of(value)));
+    validateKey(keyLen);
+    validateValue(value);
+    pendingUpdates.put(
+        Bytes.wrap(Arrays.copyOf(key, keyLen)), new Direct(Optional.of(Arrays.copyOf(value, 32))));
   }
 
   @Override
   public void putDeferred(
       final byte[] key, final int keyLen, final UnaryOperator<Optional<byte[]>> merger) {
-    pendingUpdates.put(Bytes.wrap(key, 0, keyLen), new Merge(merger));
+    validateKey(keyLen);
+    Objects.requireNonNull(merger);
+    pendingUpdates.put(Bytes.wrap(Arrays.copyOf(key, keyLen)), new Merge(merger));
   }
 
   @Override
   public void remove(final byte[] key, final int keyLen) {
-    pendingUpdates.put(Bytes.wrap(key, 0, keyLen), new Direct(Optional.empty()));
+    validateKey(keyLen);
+    pendingUpdates.put(Bytes.wrap(Arrays.copyOf(key, keyLen)), new Direct(Optional.empty()));
   }
 
   @Override
@@ -174,10 +180,10 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
       final Optional<CommitCache> maybeCommitCache) {
 
     final TrieNode loadedNode = loadNode(node);
-    if (loadedNode instanceof MemoryBranchNode branch) {
+    if (loadedNode instanceof BranchNode branch) {
       return handleBranchNode(branch, location, depth, updates, maybeCommitCache);
     }
-    if (loadedNode instanceof MemoryLeafNode leaf) {
+    if (loadedNode instanceof LeafNode leaf) {
       return handleLeafNode(leaf, location, depth, updates, maybeCommitCache);
     }
     if (loadedNode instanceof EmptyTrieNode) {
@@ -187,7 +193,7 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
   }
 
   private TrieNode handleBranchNode(
-      final MemoryBranchNode branchNode,
+      final BranchNode branchNode,
       final Bytes location,
       final int depth,
       final List<UpdateEntry> updates,
@@ -206,7 +212,20 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
     }
 
     final int splitDepth = depth + prefixLen;
-    final Map<Byte, List<UpdateEntry>> groupedUpdates = groupUpdatesByBit(updates, splitDepth);
+    // Batch grouping needs to inspect the split bit. If an inserting update ends before that bit,
+    // fall back to the sequential visitor so it can reject the prefix-free violation consistently.
+    if (updates.stream()
+        .anyMatch(update -> update.mayInsert() && update.bitCount() <= splitDepth)) {
+      return applyUpdatesSequentially(branchNode, location, depth, updates, maybeCommitCache);
+    }
+    final List<UpdateEntry> branchUpdates =
+        updates.stream().filter(update -> update.bitCount() > splitDepth).toList();
+    if (branchUpdates.isEmpty()) {
+      commitOrHashNode(branchNode, location, maybeCommitCache);
+      return branchNode;
+    }
+    final Map<Byte, List<UpdateEntry>> groupedUpdates =
+        groupUpdatesByBit(branchUpdates, splitDepth);
 
     final BranchWrapper branchWrapper = new BranchWrapper(branchNode);
     branchWrapper.loadChildren();
@@ -226,7 +245,7 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
       final boolean goRight = entry.getKey() == 1;
       final List<UpdateEntry> childUpdates = entry.getValue();
       final Bytes childLocation =
-          TrieNodeCodec.childLocation(location, prefixBits, prefixLen, goRight ? 1 : 0);
+          StoredNodeCodec.childLocation(location, prefixBits, prefixLen, goRight ? 1 : 0);
 
       final ForkJoinTask<Void> task =
           ForkJoinTask.adapt(
@@ -235,7 +254,11 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
                     goRight ? branchWrapper.getRightChild() : branchWrapper.getLeftChild();
                 final TrieNode updatedChild =
                     processNode(
-                        currentChild, childLocation, splitDepth + 1, childUpdates, maybeCommitCache);
+                        currentChild,
+                        childLocation,
+                        splitDepth + 1,
+                        childUpdates,
+                        maybeCommitCache);
                 branchWrapper.setChild(goRight, updatedChild);
                 return null;
               });
@@ -247,7 +270,7 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
       final boolean goRight = entry.getKey() == 1;
       final List<UpdateEntry> childUpdates = entry.getValue();
       final Bytes childLocation =
-          TrieNodeCodec.childLocation(location, prefixBits, prefixLen, goRight ? 1 : 0);
+          StoredNodeCodec.childLocation(location, prefixBits, prefixLen, goRight ? 1 : 0);
 
       final TrieNode currentChild =
           goRight ? branchWrapper.getRightChild() : branchWrapper.getLeftChild();
@@ -264,7 +287,7 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
   }
 
   private TrieNode expandBranchPrefixToDivergence(
-      final MemoryBranchNode branchNode,
+      final BranchNode branchNode,
       final byte[] prefixBits,
       final int prefixLen,
       final Bytes location,
@@ -275,18 +298,17 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
     final int divergenceIndex = findDivergenceInPrefix(updates, depth, prefixBits, prefixLen);
     final byte[] commonPrefix = Arrays.copyOfRange(prefixBits, 0, divergenceIndex);
     final byte divergingBit = prefixBits[divergenceIndex];
-    final byte[] remainingSuffix =
-        Arrays.copyOfRange(prefixBits, divergenceIndex + 1, prefixLen);
+    final byte[] remainingSuffix = Arrays.copyOfRange(prefixBits, divergenceIndex + 1, prefixLen);
 
     final TrieNode continuation =
         remainingSuffix.length == 0
-            ? new MemoryBranchNode(
+            ? new BranchNode(
                 new byte[0],
                 0,
                 loadNode(branchNode.leftChild()),
                 loadNode(branchNode.rightChild()),
                 false)
-            : new MemoryBranchNode(
+            : new BranchNode(
                 remainingSuffix,
                 remainingSuffix.length,
                 loadNode(branchNode.leftChild()),
@@ -295,16 +317,16 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
 
     TrieNode currentNode;
     if (divergingBit == 0) {
-      currentNode = new MemoryBranchNode(new byte[0], 0, continuation, TrieNode.empty(), false);
+      currentNode = new BranchNode(new byte[0], 0, continuation, TrieNode.empty(), false);
     } else {
-      currentNode = new MemoryBranchNode(new byte[0], 0, TrieNode.empty(), continuation, false);
+      currentNode = new BranchNode(new byte[0], 0, TrieNode.empty(), continuation, false);
     }
 
     for (int i = commonPrefix.length - 1; i >= 0; i--) {
       if (commonPrefix[i] == 0) {
-        currentNode = new MemoryBranchNode(new byte[0], 0, currentNode, TrieNode.empty(), false);
+        currentNode = new BranchNode(new byte[0], 0, currentNode, TrieNode.empty(), false);
       } else {
-        currentNode = new MemoryBranchNode(new byte[0], 0, TrieNode.empty(), currentNode, false);
+        currentNode = new BranchNode(new byte[0], 0, TrieNode.empty(), currentNode, false);
       }
     }
 
@@ -334,13 +356,13 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
   }
 
   private TrieNode handleLeafNode(
-      final MemoryLeafNode leaf,
+      final LeafNode leaf,
       final Bytes location,
       final int depth,
       final List<UpdateEntry> updates,
       final Optional<CommitCache> maybeCommitCache) {
     if (updates.size() > 1 && countDistinctBitsAtDepth(updates, depth) > 1) {
-      final MemoryBranchNode branch = buildBranchFromLeaf(leaf, depth);
+      final BranchNode branch = buildBranchFromLeaf(leaf, depth);
       return handleBranchNode(branch, location, depth, updates, maybeCommitCache);
     }
     return applyUpdatesSequentially(leaf, location, depth, updates, maybeCommitCache);
@@ -352,26 +374,26 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
       final List<UpdateEntry> updates,
       final Optional<CommitCache> maybeCommitCache) {
     if (updates.size() > 1 && countDistinctBitsAtDepth(updates, depth) > 1) {
-      final MemoryBranchNode branch = buildEmptyBranch();
+      final BranchNode branch = buildEmptyBranch();
       return handleBranchNode(branch, location, depth, updates, maybeCommitCache);
     }
     return applyUpdatesSequentially(TrieNode.empty(), location, depth, updates, maybeCommitCache);
   }
 
-  private MemoryBranchNode buildBranchFromLeaf(final MemoryLeafNode leaf, final int depth) {
+  private BranchNode buildBranchFromLeaf(final LeafNode leaf, final int depth) {
     final byte[] bits = ByteTrieOps.expandKeyBitsCopy(leaf.keyBytes(), leaf.keyLength());
     final int keyBits = leaf.keyLength() * 8;
     if (depth >= keyBits) {
-      return new MemoryBranchNode(new byte[0], 0, leaf, TrieNode.empty(), false);
+      return new BranchNode(new byte[0], 0, leaf, TrieNode.empty(), false);
     }
     if (bits[depth] == 0) {
-      return new MemoryBranchNode(new byte[0], 0, leaf, TrieNode.empty(), false);
+      return new BranchNode(new byte[0], 0, leaf, TrieNode.empty(), false);
     }
-    return new MemoryBranchNode(new byte[0], 0, TrieNode.empty(), leaf, false);
+    return new BranchNode(new byte[0], 0, TrieNode.empty(), leaf, false);
   }
 
-  private MemoryBranchNode buildEmptyBranch() {
-    return new MemoryBranchNode(new byte[0], 0, TrieNode.empty(), TrieNode.empty(), false);
+  private BranchNode buildEmptyBranch() {
+    return new BranchNode(new byte[0], 0, TrieNode.empty(), TrieNode.empty(), false);
   }
 
   private Map<Byte, List<UpdateEntry>> groupUpdatesByBit(
@@ -425,7 +447,7 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
   }
 
   private TrieNode loadNode(final TrieNode node) {
-    if (node instanceof StoredTrieNode stored) {
+    if (node instanceof StoredNode stored) {
       return stored.load();
     }
     return node;
@@ -488,6 +510,10 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
       return merger != null;
     }
 
+    boolean mayInsert() {
+      return value.isPresent() || isMerge();
+    }
+
     int bitCount() {
       return keyLen * 8;
     }
@@ -498,11 +524,11 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
   }
 
   private static final class BranchWrapper {
-    private final MemoryBranchNode originalBranch;
+    private final BranchNode originalBranch;
     private TrieNode leftChild;
     private TrieNode rightChild;
 
-    BranchWrapper(final MemoryBranchNode branch) {
+    BranchWrapper(final BranchNode branch) {
       this.originalBranch = branch;
       this.leftChild = branch.leftChild();
       this.rightChild = branch.rightChild();
@@ -543,7 +569,7 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
     }
 
     private static TrieNode loadStored(final TrieNode node) {
-      if (node instanceof StoredTrieNode stored) {
+      if (node instanceof StoredNode stored) {
         return stored.load();
       }
       return node;

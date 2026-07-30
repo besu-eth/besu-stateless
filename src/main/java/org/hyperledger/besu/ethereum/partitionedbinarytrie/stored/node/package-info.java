@@ -15,8 +15,8 @@
  */
 
 /**
- * {@link org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.TrieNode} graph:
- * empty, in-memory branch/leaf, and lazy {@link
- * org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.StoredTrieNode} proxies.
+ * {@link org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.TrieNode} graph: empty,
+ * in-memory branch/leaf, and lazy {@link
+ * org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.StoredNode} proxies.
  */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node;

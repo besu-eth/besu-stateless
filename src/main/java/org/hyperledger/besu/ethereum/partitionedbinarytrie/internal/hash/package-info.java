@@ -14,7 +14,5 @@
  *
  */
 
-/**
- * Allocation-free BLAKE3 hashing for trie merkleization.
- */
+/** Allocation-free BLAKE3 hashing for trie merkleization. */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.hash;

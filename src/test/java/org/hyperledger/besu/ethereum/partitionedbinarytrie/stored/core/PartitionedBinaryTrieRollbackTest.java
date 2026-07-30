@@ -17,8 +17,8 @@ package org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.core;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.codec.BasicDataEncoder;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.keys.TrieKeyDerivation;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.codec.AccountBasicDataEncoder;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.keys.Eip8297TreeKeyDerivation;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.TrieConstants;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.factory.NodeLoaderMock;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.factory.NodeUpdaterMock;
@@ -62,9 +62,7 @@ class PartitionedBinaryTrieRollbackTest {
     factory = new PartitionedBinaryTrieFactory(new NodeLoaderMock(nodeUpdater));
   }
 
-  /**
-   * PBT absence semantics: zero values are not deletion; removing absent keys is a no-op.
-   */
+  /** PBT absence semantics: zero values are not deletion; removing absent keys is a no-op. */
   @Nested
   class RemoveSemantics {
 
@@ -427,8 +425,8 @@ class PartitionedBinaryTrieRollbackTest {
 
     @Test
     void accountBasicDataRemoveRestoresEmptyAccount() {
-      final Bytes basicKey = TrieKeyDerivation.getTreeKeyForBasicData(ADDRESS);
-      final Bytes32 basicData = BasicDataEncoder.encodeBasicData(1, 2, UInt256.valueOf(100));
+      final Bytes basicKey = Eip8297TreeKeyDerivation.getTreeKeyForBasicData(ADDRESS);
+      final Bytes32 basicData = AccountBasicDataEncoder.encodeBasicData(1, 2, UInt256.valueOf(100));
 
       final StoredPartitionedBinaryTrie trie = factory.create();
       final BinaryTrie spec = new BinaryTrie();
@@ -451,10 +449,10 @@ class PartitionedBinaryTrieRollbackTest {
 
     @Test
     void accountRemoveOneLeafKeepsOther() {
-      final Bytes basicKey = TrieKeyDerivation.getTreeKeyForBasicData(ADDRESS);
-      final Bytes codeHashKey = TrieKeyDerivation.getTreeKeyForCodeHash(ADDRESS);
-      final Bytes32 basicData = BasicDataEncoder.encodeBasicData(0, 0, UInt256.ONE);
-      final Bytes32 codeHash = TrieKeyDerivation.EMPTY_CODE_HASH;
+      final Bytes basicKey = Eip8297TreeKeyDerivation.getTreeKeyForBasicData(ADDRESS);
+      final Bytes codeHashKey = Eip8297TreeKeyDerivation.getTreeKeyForCodeHash(ADDRESS);
+      final Bytes32 basicData = AccountBasicDataEncoder.encodeBasicData(0, 0, UInt256.ONE);
+      final Bytes32 codeHash = Eip8297TreeKeyDerivation.EMPTY_CODE_HASH;
 
       final StoredPartitionedBinaryTrie trie = factory.create();
       trie.put(basicKey.toArray(), basicKey.size(), basicData.toArray());

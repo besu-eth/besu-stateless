@@ -15,7 +15,7 @@
  */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.keys;
 
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.params.EmbeddingParameters;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.params.Eip8297EmbeddingParameters;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.hash.Blake3Hasher;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -28,13 +28,13 @@ import org.apache.tuweni.units.bigints.UInt256;
  * <p>Maps Ethereum addresses, storage slots, and code chunks to variable-length trie keys using
  * zone prefixes and BLAKE3 tree positions.
  */
-public final class TrieKeyDerivation {
+public final class Eip8297TreeKeyDerivation {
 
   /** Keccak-256 hash of empty bytecode, used as the code hash for accounts without code. */
   public static final Bytes32 EMPTY_CODE_HASH =
       Bytes32.fromHexString("c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470");
 
-  private TrieKeyDerivation() {}
+  private Eip8297TreeKeyDerivation() {}
 
   /**
    * Left-pads a 20-byte address to 32 bytes.
@@ -62,7 +62,7 @@ public final class TrieKeyDerivation {
   /**
    * Builds a raw tree key: {@code zone (1) | treePosition | subIndex (1)}.
    *
-   * @param zone zone identifier ({@link EmbeddingParameters#ACCOUNT_ZONE}, etc.)
+   * @param zone zone identifier ({@link Eip8297EmbeddingParameters#ACCOUNT_ZONE}, etc.)
    * @param treePosition hashed tree position bytes
    * @param subIndex leaf sub-index within the stem (0–255)
    * @return concatenated key bytes
@@ -82,8 +82,9 @@ public final class TrieKeyDerivation {
    * @return 34-byte account key
    */
   public static Bytes getTreeKeyForHeader(final Bytes32 address, final int subIndex) {
-    final Bytes key = getTreeKey(EmbeddingParameters.ACCOUNT_ZONE, keyHash(address), subIndex);
-    if (key.size() != EmbeddingParameters.ACCOUNT_KEY_LENGTH) {
+    final Bytes key =
+        getTreeKey(Eip8297EmbeddingParameters.ACCOUNT_ZONE, keyHash(address), subIndex);
+    if (key.size() != Eip8297EmbeddingParameters.ACCOUNT_KEY_LENGTH) {
       throw new IllegalStateException("Unexpected account key length: " + key.size());
     }
     return key;
@@ -96,7 +97,7 @@ public final class TrieKeyDerivation {
    * @return basic-data tree key
    */
   public static Bytes getTreeKeyForBasicData(final Bytes32 address) {
-    return getTreeKeyForHeader(address, EmbeddingParameters.BASIC_DATA_LEAF_KEY);
+    return getTreeKeyForHeader(address, Eip8297EmbeddingParameters.BASIC_DATA_LEAF_KEY);
   }
 
   /**
@@ -106,7 +107,7 @@ public final class TrieKeyDerivation {
    * @return code-hash tree key
    */
   public static Bytes getTreeKeyForCodeHash(final Bytes32 address) {
-    return getTreeKeyForHeader(address, EmbeddingParameters.CODE_HASH_LEAF_KEY);
+    return getTreeKeyForHeader(address, Eip8297EmbeddingParameters.CODE_HASH_LEAF_KEY);
   }
 
   /**
@@ -125,8 +126,8 @@ public final class TrieKeyDerivation {
   /**
    * Returns the tree key for a storage slot.
    *
-   * <p>Slots below {@link EmbeddingParameters#CODE_OFFSET} map into the account header stem; larger
-   * slots use the storage zone with stem grouping.
+   * <p>Slots below {@link Eip8297EmbeddingParameters#CODE_OFFSET} map into the account header stem;
+   * larger slots use the storage zone with stem grouping.
    *
    * @param address 32-byte account address
    * @param storageKey storage slot index
@@ -135,19 +136,22 @@ public final class TrieKeyDerivation {
   public static Bytes getTreeKeyForStorageSlot(final Bytes32 address, final UInt256 storageKey) {
     if (storageKey.compareTo(
             UInt256.valueOf(
-                EmbeddingParameters.CODE_OFFSET - EmbeddingParameters.HEADER_STORAGE_OFFSET))
+                Eip8297EmbeddingParameters.CODE_OFFSET
+                    - Eip8297EmbeddingParameters.HEADER_STORAGE_OFFSET))
         < 0) {
       return getTreeKeyForHeader(
-          address, EmbeddingParameters.HEADER_STORAGE_OFFSET + storageKey.intValue());
+          address, Eip8297EmbeddingParameters.HEADER_STORAGE_OFFSET + storageKey.intValue());
     }
     final UInt256 treeIndex =
-        storageKey.divide(UInt256.valueOf(EmbeddingParameters.STEM_SUBTREE_WIDTH));
+        storageKey.divide(UInt256.valueOf(Eip8297EmbeddingParameters.STEM_SUBTREE_WIDTH));
     final int subIndex =
-        storageKey.mod(UInt256.valueOf(EmbeddingParameters.STEM_SUBTREE_WIDTH)).intValue();
+        storageKey.mod(UInt256.valueOf(Eip8297EmbeddingParameters.STEM_SUBTREE_WIDTH)).intValue();
     final Bytes key =
         getTreeKey(
-            EmbeddingParameters.STORAGE_ZONE, storageTreePosition(address, treeIndex), subIndex);
-    if (key.size() != EmbeddingParameters.STORAGE_KEY_LENGTH) {
+            Eip8297EmbeddingParameters.STORAGE_ZONE,
+            storageTreePosition(address, treeIndex),
+            subIndex);
+    if (key.size() != Eip8297EmbeddingParameters.STORAGE_KEY_LENGTH) {
       throw new IllegalStateException("Unexpected storage key length: " + key.size());
     }
     return key;
@@ -165,19 +169,22 @@ public final class TrieKeyDerivation {
    */
   public static Bytes getTreeKeyForCodeChunk(
       final Bytes32 address, final Bytes32 codeHash, final int chunkId) {
-    if (chunkId < EmbeddingParameters.STEM_SUBTREE_WIDTH - EmbeddingParameters.CODE_OFFSET) {
-      return getTreeKeyForHeader(address, EmbeddingParameters.CODE_OFFSET + chunkId);
+    if (chunkId
+        < Eip8297EmbeddingParameters.STEM_SUBTREE_WIDTH - Eip8297EmbeddingParameters.CODE_OFFSET) {
+      return getTreeKeyForHeader(address, Eip8297EmbeddingParameters.CODE_OFFSET + chunkId);
     }
     final int overflow =
-        chunkId - (EmbeddingParameters.STEM_SUBTREE_WIDTH - EmbeddingParameters.CODE_OFFSET);
-    final int treeIndex = overflow / EmbeddingParameters.STEM_SUBTREE_WIDTH;
-    final int subIndex = overflow % EmbeddingParameters.STEM_SUBTREE_WIDTH;
+        chunkId
+            - (Eip8297EmbeddingParameters.STEM_SUBTREE_WIDTH
+                - Eip8297EmbeddingParameters.CODE_OFFSET);
+    final int treeIndex = overflow / Eip8297EmbeddingParameters.STEM_SUBTREE_WIDTH;
+    final int subIndex = overflow % Eip8297EmbeddingParameters.STEM_SUBTREE_WIDTH;
     final Bytes key =
         getTreeKey(
-            EmbeddingParameters.CODE_ZONE,
+            Eip8297EmbeddingParameters.CODE_ZONE,
             keyHash(Bytes.concatenate(codeHash, Bytes32.leftPad(UInt256.valueOf(treeIndex)))),
             subIndex);
-    if (key.size() != EmbeddingParameters.CODE_KEY_LENGTH) {
+    if (key.size() != Eip8297EmbeddingParameters.CODE_KEY_LENGTH) {
       throw new IllegalStateException("Unexpected code key length: " + key.size());
     }
     return key;

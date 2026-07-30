@@ -15,7 +15,7 @@
  */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.core;
 
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.factory.StoredTrieNodeFactory;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.factory.StoredNodeFactory;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.TrieNode;
 import org.hyperledger.besu.ethereum.trie.NodeLoader;
 import org.hyperledger.besu.ethereum.trie.NodeUpdater;
@@ -30,23 +30,22 @@ import org.apache.tuweni.bytes.Bytes32;
  */
 public class StoredPartitionedBinaryTrie extends PartitionedBinaryTrie {
 
-  protected final StoredTrieNodeFactory nodeFactory;
+  protected final StoredNodeFactory nodeFactory;
 
   public StoredPartitionedBinaryTrie(final NodeLoader nodeLoader) {
-    this(new StoredTrieNodeFactory(nodeLoader));
+    this(new StoredNodeFactory(nodeLoader));
   }
 
   public StoredPartitionedBinaryTrie(final NodeLoader nodeLoader, final Bytes32 rootHash) {
-    this(new StoredTrieNodeFactory(nodeLoader), rootHash);
+    this(new StoredNodeFactory(nodeLoader), rootHash);
   }
 
-  public StoredPartitionedBinaryTrie(final StoredTrieNodeFactory nodeFactory) {
+  public StoredPartitionedBinaryTrie(final StoredNodeFactory nodeFactory) {
     super(nodeFactory.retrieveRoot());
     this.nodeFactory = nodeFactory;
   }
 
-  public StoredPartitionedBinaryTrie(
-      final StoredTrieNodeFactory nodeFactory, final Bytes32 rootHash) {
+  public StoredPartitionedBinaryTrie(final StoredNodeFactory nodeFactory, final Bytes32 rootHash) {
     super(
         rootHash.equals(Bytes32.ZERO)
             ? TrieNode.empty()

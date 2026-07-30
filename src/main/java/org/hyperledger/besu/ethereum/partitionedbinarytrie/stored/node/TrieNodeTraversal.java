@@ -59,12 +59,12 @@ public final class TrieNodeTraversal {
    * @param nodeConsumer invoked for each node
    */
   public static void visitAll(final TrieNode root, final Consumer<TrieNode> nodeConsumer) {
-    if (root instanceof StoredTrieNode stored) {
+    if (root instanceof StoredNode stored) {
       visitAll(stored.load(), nodeConsumer);
       return;
     }
     nodeConsumer.accept(root);
-    if (root instanceof MemoryBranchNode branch) {
+    if (root instanceof BranchNode branch) {
       visitAll(branch.leftChild(), nodeConsumer);
       visitAll(branch.rightChild(), nodeConsumer);
     }
@@ -82,11 +82,11 @@ public final class TrieNodeTraversal {
       final TrieNode root,
       final Consumer<TrieNode> nodeConsumer,
       final ExecutorService executorService) {
-    if (root instanceof StoredTrieNode stored) {
+    if (root instanceof StoredNode stored) {
       return visitAllParallel(stored.load(), nodeConsumer, executorService);
     }
     final Stream<CompletableFuture<Void>> childFutures;
-    if (root instanceof MemoryBranchNode branch) {
+    if (root instanceof BranchNode branch) {
       childFutures =
           Stream.of(
               visitAllParallel(branch.leftChild(), nodeConsumer, executorService),
@@ -147,21 +147,21 @@ public final class TrieNodeTraversal {
     if (stopped[0] || root instanceof EmptyTrieNode) {
       return;
     }
-    if (root instanceof MemoryLeafNode leaf) {
+    if (root instanceof LeafNode leaf) {
       if (handler.onLeaf(leaf.keyBytes(), leaf.keyLength(), leaf.valueBytes())
           == LeafHandler.State.STOP) {
         stopped[0] = true;
       }
       return;
     }
-    if (root instanceof MemoryBranchNode branch) {
+    if (root instanceof BranchNode branch) {
       visitLeavesWithStop(branch.leftChild(), handler, stopped);
       if (!stopped[0]) {
         visitLeavesWithStop(branch.rightChild(), handler, stopped);
       }
       return;
     }
-    if (root instanceof StoredTrieNode stored) {
+    if (root instanceof StoredNode stored) {
       visitLeavesWithStop(stored.load(), handler, stopped);
     }
   }

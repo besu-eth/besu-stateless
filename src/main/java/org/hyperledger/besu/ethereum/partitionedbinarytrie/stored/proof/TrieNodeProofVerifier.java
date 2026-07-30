@@ -16,9 +16,9 @@
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.proof;
 
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.TrieConstants;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.codec.TrieNodeCodec;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.MemoryBranchNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.MemoryLeafNode;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.codec.StoredNodeCodec;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.BranchNode;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.LeafNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.TrieNode;
 
 import java.util.HashMap;
@@ -32,8 +32,8 @@ import org.apache.tuweni.bytes.Bytes32;
 /**
  * Verifies partitioned binary trie proofs against an expected root hash.
  *
- * <p>Proof nodes are canonical encoded trie nodes ({@link TrieNodeCodec}) indexed by BLAKE3 merkle
- * hash, matching the proof format produced by {@link
+ * <p>Proof nodes are canonical encoded trie nodes ({@link StoredNodeCodec}) indexed by BLAKE3
+ * merkle hash, matching the proof format produced by {@link
  * org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.visitor.ProofVisitor}.
  */
 public final class TrieNodeProofVerifier {
@@ -81,8 +81,7 @@ public final class TrieNodeProofVerifier {
       return Optional.of(Optional.empty());
     }
     final Map<Bytes32, Bytes> nodesByHash = indexProofNodes(proofNodes);
-    final TrieNode root =
-        decodeFromProof(Bytes.EMPTY, nodesByHash.get(expectedRoot), nodesByHash);
+    final TrieNode root = decodeFromProof(Bytes.EMPTY, nodesByHash.get(expectedRoot), nodesByHash);
     return Optional.of(root.get(key, keyLen, 0));
   }
 
@@ -104,20 +103,20 @@ public final class TrieNodeProofVerifier {
       return TrieNode.empty();
     }
     final int tag = encoded.get(0) & 0xFF;
-    if (tag == TrieNodeCodec.LEAF_TAG) {
+    if (tag == StoredNodeCodec.LEAF_TAG) {
       return decodeLeafOrBranchOnly(encoded);
     }
-    if (tag == TrieNodeCodec.BRANCH_TAG) {
+    if (tag == StoredNodeCodec.BRANCH_TAG) {
       final int prefixLen = encoded.getInt(1);
       final int packedLen = (prefixLen + 7) / 8;
       final int cursor = 5 + packedLen;
       final byte[] prefixBits =
-          TrieNodeCodec.unpackPrefix(encoded.slice(5, packedLen), prefixLen);
+          StoredNodeCodec.unpackPrefix(encoded.slice(5, packedLen), prefixLen);
       final Bytes32 leftHash = Bytes32.wrap(encoded.slice(cursor, 32).toArrayUnsafe());
       final Bytes32 rightHash = Bytes32.wrap(encoded.slice(cursor + 32, 32).toArrayUnsafe());
-      final Bytes leftLoc = TrieNodeCodec.childLocation(location, prefixBits, prefixLen, 0);
-      final Bytes rightLoc = TrieNodeCodec.childLocation(location, prefixBits, prefixLen, 1);
-      return new MemoryBranchNode(
+      final Bytes leftLoc = StoredNodeCodec.childLocation(location, prefixBits, prefixLen, 0);
+      final Bytes rightLoc = StoredNodeCodec.childLocation(location, prefixBits, prefixLen, 1);
+      return new BranchNode(
           prefixBits,
           prefixLen,
           resolveChild(leftLoc, leftHash, nodesByHash),
@@ -141,21 +140,21 @@ public final class TrieNodeProofVerifier {
 
   private static TrieNode decodeLeafOrBranchOnly(final Bytes encoded) {
     final int tag = encoded.get(0) & 0xFF;
-    if (tag == TrieNodeCodec.LEAF_TAG) {
+    if (tag == StoredNodeCodec.LEAF_TAG) {
       final int keyLen = encoded.getInt(1);
       final byte[] key = encoded.slice(5, keyLen).toArrayUnsafe();
       final byte[] value = encoded.slice(5 + keyLen, 32).toArrayUnsafe();
-      return new MemoryLeafNode(key, keyLen, value, true);
+      return new LeafNode(key, keyLen, value, true);
     }
-    if (tag == TrieNodeCodec.BRANCH_TAG) {
+    if (tag == StoredNodeCodec.BRANCH_TAG) {
       final int prefixLen = encoded.getInt(1);
       final int packedLen = (prefixLen + 7) / 8;
       final int cursor = 5 + packedLen;
       final byte[] prefixBits =
-          TrieNodeCodec.unpackPrefix(encoded.slice(5, packedLen), prefixLen);
+          StoredNodeCodec.unpackPrefix(encoded.slice(5, packedLen), prefixLen);
       final Bytes32 leftHash = Bytes32.wrap(encoded.slice(cursor, 32).toArrayUnsafe());
       final Bytes32 rightHash = Bytes32.wrap(encoded.slice(cursor + 32, 32).toArrayUnsafe());
-      return new MemoryBranchNode(
+      return new BranchNode(
           prefixBits,
           prefixLen,
           new ProofReferenceNode(leftHash),

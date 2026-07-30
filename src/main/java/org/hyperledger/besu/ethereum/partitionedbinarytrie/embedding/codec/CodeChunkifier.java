@@ -15,7 +15,7 @@
  */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.codec;
 
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.params.EmbeddingParameters;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.params.Eip8297EmbeddingParameters;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -54,8 +54,9 @@ public final class CodeChunkifier {
     while (position < padded.size()) {
       final int opcode = padded.get(position) & 0xFF;
       final int pushDataBytes;
-      if (opcode >= EmbeddingParameters.PUSH1 && opcode <= EmbeddingParameters.PUSH32) {
-        pushDataBytes = opcode - EmbeddingParameters.PUSH_OFFSET;
+      if (opcode >= Eip8297EmbeddingParameters.PUSH1
+          && opcode <= Eip8297EmbeddingParameters.PUSH32) {
+        pushDataBytes = opcode - Eip8297EmbeddingParameters.PUSH_OFFSET;
       } else {
         pushDataBytes = 0;
       }

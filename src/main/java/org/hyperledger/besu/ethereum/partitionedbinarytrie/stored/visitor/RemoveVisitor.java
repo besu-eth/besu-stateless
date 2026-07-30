@@ -16,10 +16,10 @@
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.visitor;
 
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.bytes.ByteTrieOps;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.BranchNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.EmptyTrieNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.MemoryBranchNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.MemoryLeafNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.StoredTrieNode;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.LeafNode;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.StoredNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.node.TrieNode;
 
 /**
@@ -49,7 +49,7 @@ public class RemoveVisitor implements PathNodeVisitor {
 
   @Override
   public TrieNode visit(
-      final MemoryLeafNode leafNode, final byte[] key, final int keyLen, final int depth) {
+      final LeafNode leafNode, final byte[] key, final int keyLen, final int depth) {
     if (ByteTrieOps.keysEqual(leafNode.keyBytes(), leafNode.keyLength(), key, keyLen)) {
       return NULL_NODE;
     }
@@ -58,7 +58,7 @@ public class RemoveVisitor implements PathNodeVisitor {
 
   @Override
   public TrieNode visit(
-      final MemoryBranchNode branchNode, final byte[] key, final int keyLen, final int depth) {
+      final BranchNode branchNode, final byte[] key, final int keyLen, final int depth) {
     final int keyBits = keyLen * 8;
     if (depth >= keyBits) {
       return branchNode;
@@ -82,7 +82,7 @@ public class RemoveVisitor implements PathNodeVisitor {
 
   @Override
   public TrieNode visit(
-      final StoredTrieNode storedNode, final byte[] key, final int keyLen, final int depth) {
+      final StoredNode storedNode, final byte[] key, final int keyLen, final int depth) {
     return storedNode.load().accept(this, key, keyLen, depth);
   }
 }

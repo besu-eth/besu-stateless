@@ -19,8 +19,9 @@
  * values.
  *
  * <ul>
- *   <li>{@link org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.core.PartitionedBinaryTrie}
- *       — in-memory trie graph
+ *   <li>{@link
+ *       org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.core.PartitionedBinaryTrie} —
+ *       in-memory trie graph
  *   <li>{@link
  *       org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.core.StoredPartitionedBinaryTrie}
  *       — lazy-loaded trie backed by {@code NodeLoader}

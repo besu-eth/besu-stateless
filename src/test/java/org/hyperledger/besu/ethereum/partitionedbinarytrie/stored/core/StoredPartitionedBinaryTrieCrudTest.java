@@ -16,6 +16,7 @@
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.core;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.TrieConstants;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.factory.NodeLoaderMock;
@@ -103,5 +104,32 @@ class StoredPartitionedBinaryTrieCrudTest {
 
     trie.remove(key);
     assertThat(trie.get(key)).isEmpty();
+  }
+
+  @Test
+  void putRejectsPrefixKeyViolation() {
+    final PartitionedBinaryTrie trie = new PartitionedBinaryTrie();
+    final Bytes shortKey = Bytes.fromHexString("0xaaaa");
+    final Bytes longKey = Bytes.fromHexString("0xaaaabb");
+
+    trie.put(longKey, Bytes32.repeat((byte) 0x01));
+
+    assertThatThrownBy(() -> trie.put(shortKey, Bytes32.repeat((byte) 0x02)))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("prefix");
+  }
+
+  @Test
+  void putDeferredRejectsPrefixKeyViolationWhenItWouldInsert() {
+    final PartitionedBinaryTrie trie = new PartitionedBinaryTrie();
+    final Bytes shortKey = Bytes.fromHexString("0xaaaa");
+    final Bytes longKey = Bytes.fromHexString("0xaaaabb");
+
+    trie.put(longKey, Bytes32.repeat((byte) 0x01));
+
+    assertThatThrownBy(
+            () -> trie.putDeferred(shortKey, existing -> Optional.of(Bytes32.repeat((byte) 0x02))))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("prefix");
   }
 }
