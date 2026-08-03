@@ -15,9 +15,9 @@
  */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference;
 
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.TrieConstants;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieConstants;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.hash.TrieHasher;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.Binarizer;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference.node.Binarizer;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -67,6 +67,17 @@ public final class BinaryTrie {
   }
 
   /**
+   * Reads an EIP-8297 state value.
+   *
+   * @param key variable-length key
+   * @return the 32-byte value, or zero when absent
+   */
+  public Bytes32 readState(final Bytes key) {
+    validateKey(key);
+    return get(key).orElse(Bytes32.ZERO);
+  }
+
+  /**
    * Inserts or replaces a key-value pair.
    *
    * @param key variable-length key (1–{@link TrieConstants#MAX_KEY_LENGTH} bytes)
@@ -79,10 +90,28 @@ public final class BinaryTrie {
   }
 
   /**
+   * Applies an EIP-8297 state write.
+   *
+   * <p>Writing zero deletes the leaf instead of storing it.
+   *
+   * @param key variable-length key (1–{@link TrieConstants#MAX_KEY_LENGTH} bytes)
+   * @param value 32-byte state value
+   */
+  public void writeState(final Bytes key, final Bytes32 value) {
+    validateKey(key);
+    validateValue(value);
+    if (Bytes32.ZERO.equals(value)) {
+      remove(key);
+    } else {
+      put(key, value);
+    }
+  }
+
+  /**
    * Removes a key from the trie.
    *
-   * <p>Per PBT semantics, absence means the key is not present in the trie — not a zero-valued
-   * leaf. See {@code zeroValueIsNotAbsence} in {@link BinaryTrieConformanceTest}.
+   * <p>Raw trie absence means the key is not present in the trie. State-level writes use {@link
+   * #writeState(Bytes, Bytes32)} to map zero values to deletion.
    *
    * @param key key to remove
    */

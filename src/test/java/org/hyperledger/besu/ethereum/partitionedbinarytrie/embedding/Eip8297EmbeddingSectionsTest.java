@@ -17,15 +17,15 @@ package org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.codec.AccountBasicDataEncoder;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.codec.CodeChunkifier;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.keys.Eip8297TreeKeyDerivation;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.TrieConstants;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.core.PartitionedBinaryTrie;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.core.StoredPartitionedBinaryTrie;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.factory.NodeLoaderMock;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.factory.NodeUpdaterMock;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.factory.PartitionedBinaryTrieFactory;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.BasicDataEncoder;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.CodeChunkifier;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieConstants;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKeyDerivation;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.PartitionedBinaryTrie;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.StoredPartitionedBinaryTrie;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.NodeLoaderMock;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.NodeUpdaterMock;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.PartitionedBinaryTrieFactory;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.hash.TrieHasher;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference.BinaryTrie;
 
@@ -46,7 +46,7 @@ import org.junit.jupiter.params.provider.MethodSource;
  * End-to-end trie coverage for every EIP-8297 embedding section across in-memory and stored
  * backends.
  *
- * <p>Layer: embedding (key derivation, basic data, code chunks, storage) over stored core and
+ * <p>Layer: embedding (key derivation, basic data, code chunks, storage) over trie storage and
  * {@link PartitionedBinaryTrie}. Each parameterized test compares root hash and values against
  * {@link BinaryTrie}.
  */
@@ -73,8 +73,8 @@ class Eip8297EmbeddingSectionsTest {
   @ParameterizedTest
   @EnumSource(TrieKind.class)
   void basicDataPutGetCommitReload(final TrieKind kind) {
-    final Bytes key = Eip8297TreeKeyDerivation.getTreeKeyForBasicData(ADDRESS_A);
-    final Bytes32 value = AccountBasicDataEncoder.encodeBasicData(10, 20, UInt256.valueOf(999));
+    final Bytes key = TrieKeyDerivation.getTreeKeyForBasicData(ADDRESS_A);
+    final Bytes32 value = BasicDataEncoder.encodeBasicData(10, 20, UInt256.valueOf(999));
 
     try (EmbeddingTrieSession session = kind.open()) {
       session.put(key, value);
@@ -87,7 +87,7 @@ class Eip8297EmbeddingSectionsTest {
   @ParameterizedTest
   @EnumSource(TrieKind.class)
   void codeHashPutGetCommitReload(final TrieKind kind) {
-    final Bytes key = Eip8297TreeKeyDerivation.getTreeKeyForCodeHash(ADDRESS_A);
+    final Bytes key = TrieKeyDerivation.getTreeKeyForCodeHash(ADDRESS_A);
     final Bytes32 value = CODE_HASH;
 
     try (EmbeddingTrieSession session = kind.open()) {
@@ -101,8 +101,7 @@ class Eip8297EmbeddingSectionsTest {
   @ParameterizedTest
   @EnumSource(TrieKind.class)
   void headerStorageSlotPutGetCommitReload(final TrieKind kind) {
-    final Bytes key =
-        Eip8297TreeKeyDerivation.getTreeKeyForStorageSlot(ADDRESS_A, UInt256.valueOf(5));
+    final Bytes key = TrieKeyDerivation.getTreeKeyForStorageSlot(ADDRESS_A, UInt256.valueOf(5));
     final Bytes32 value = Bytes32.repeat((byte) 0x05);
 
     try (EmbeddingTrieSession session = kind.open()) {
@@ -117,8 +116,7 @@ class Eip8297EmbeddingSectionsTest {
   @ParameterizedTest
   @EnumSource(TrieKind.class)
   void headerStorageBoundarySlot63(final TrieKind kind) {
-    final Bytes key =
-        Eip8297TreeKeyDerivation.getTreeKeyForStorageSlot(ADDRESS_A, UInt256.valueOf(63));
+    final Bytes key = TrieKeyDerivation.getTreeKeyForStorageSlot(ADDRESS_A, UInt256.valueOf(63));
     final Bytes32 value = Bytes32.repeat((byte) 0x3F);
 
     try (EmbeddingTrieSession session = kind.open()) {
@@ -132,8 +130,7 @@ class Eip8297EmbeddingSectionsTest {
   @ParameterizedTest
   @EnumSource(TrieKind.class)
   void overflowStorageSlotPutGetCommitReload(final TrieKind kind) {
-    final Bytes key =
-        Eip8297TreeKeyDerivation.getTreeKeyForStorageSlot(ADDRESS_A, UInt256.valueOf(1000));
+    final Bytes key = TrieKeyDerivation.getTreeKeyForStorageSlot(ADDRESS_A, UInt256.valueOf(1000));
     final Bytes32 value = Bytes32.repeat((byte) 0xE8);
 
     try (EmbeddingTrieSession session = kind.open()) {
@@ -149,8 +146,7 @@ class Eip8297EmbeddingSectionsTest {
   @ParameterizedTest
   @EnumSource(TrieKind.class)
   void overflowStorageBoundarySlot64(final TrieKind kind) {
-    final Bytes key =
-        Eip8297TreeKeyDerivation.getTreeKeyForStorageSlot(ADDRESS_A, UInt256.valueOf(64));
+    final Bytes key = TrieKeyDerivation.getTreeKeyForStorageSlot(ADDRESS_A, UInt256.valueOf(64));
     final Bytes32 value = Bytes32.repeat((byte) 0x40);
 
     try (EmbeddingTrieSession session = kind.open()) {
@@ -164,7 +160,7 @@ class Eip8297EmbeddingSectionsTest {
   @ParameterizedTest
   @EnumSource(TrieKind.class)
   void headerCodeChunkPutGetCommitReload(final TrieKind kind) {
-    final Bytes key = Eip8297TreeKeyDerivation.getTreeKeyForCodeChunk(ADDRESS_A, CODE_HASH, 5);
+    final Bytes key = TrieKeyDerivation.getTreeKeyForCodeChunk(ADDRESS_A, CODE_HASH, 5);
     final Bytes32 value = CodeChunkifier.chunkifyCode(Bytes.fromHexString("010203")).getFirst();
 
     try (EmbeddingTrieSession session = kind.open()) {
@@ -179,7 +175,7 @@ class Eip8297EmbeddingSectionsTest {
   @ParameterizedTest
   @EnumSource(TrieKind.class)
   void overflowCodeChunkPutGetCommitReload(final TrieKind kind) {
-    final Bytes key = Eip8297TreeKeyDerivation.getTreeKeyForCodeChunk(ADDRESS_A, CODE_HASH, 300);
+    final Bytes key = TrieKeyDerivation.getTreeKeyForCodeChunk(ADDRESS_A, CODE_HASH, 300);
     final Bytes32 value = Bytes32.repeat((byte) 0xAC);
 
     try (EmbeddingTrieSession session = kind.open()) {
@@ -195,18 +191,17 @@ class Eip8297EmbeddingSectionsTest {
   @ParameterizedTest
   @EnumSource(TrieKind.class)
   void multiSectionSameAccount(final TrieKind kind) {
-    final Bytes basicKey = Eip8297TreeKeyDerivation.getTreeKeyForBasicData(ADDRESS_A);
-    final Bytes codeHashKey = Eip8297TreeKeyDerivation.getTreeKeyForCodeHash(ADDRESS_A);
+    final Bytes basicKey = TrieKeyDerivation.getTreeKeyForBasicData(ADDRESS_A);
+    final Bytes codeHashKey = TrieKeyDerivation.getTreeKeyForCodeHash(ADDRESS_A);
     final Bytes headerStorageKey =
-        Eip8297TreeKeyDerivation.getTreeKeyForStorageSlot(ADDRESS_A, UInt256.valueOf(5));
+        TrieKeyDerivation.getTreeKeyForStorageSlot(ADDRESS_A, UInt256.valueOf(5));
     final Bytes overflowStorageKey =
-        Eip8297TreeKeyDerivation.getTreeKeyForStorageSlot(ADDRESS_A, UInt256.valueOf(1000));
-    final Bytes headerCodeKey =
-        Eip8297TreeKeyDerivation.getTreeKeyForCodeChunk(ADDRESS_A, CODE_HASH, 5);
+        TrieKeyDerivation.getTreeKeyForStorageSlot(ADDRESS_A, UInt256.valueOf(1000));
+    final Bytes headerCodeKey = TrieKeyDerivation.getTreeKeyForCodeChunk(ADDRESS_A, CODE_HASH, 5);
     final Bytes overflowCodeKey =
-        Eip8297TreeKeyDerivation.getTreeKeyForCodeChunk(ADDRESS_A, CODE_HASH, 300);
+        TrieKeyDerivation.getTreeKeyForCodeChunk(ADDRESS_A, CODE_HASH, 300);
 
-    final Bytes32 basicValue = AccountBasicDataEncoder.encodeBasicData(3, 4, UInt256.valueOf(42));
+    final Bytes32 basicValue = BasicDataEncoder.encodeBasicData(3, 4, UInt256.valueOf(42));
     final Bytes32 codeHashValue = CODE_HASH;
     final Bytes32 headerStorageValue = Bytes32.repeat((byte) 0x11);
     final Bytes32 overflowStorageValue = Bytes32.repeat((byte) 0x22);
@@ -236,10 +231,10 @@ class Eip8297EmbeddingSectionsTest {
   @ParameterizedTest
   @EnumSource(TrieKind.class)
   void crossAccountIsolation(final TrieKind kind) {
-    final Bytes keyA = Eip8297TreeKeyDerivation.getTreeKeyForBasicData(ADDRESS_A);
-    final Bytes keyB = Eip8297TreeKeyDerivation.getTreeKeyForBasicData(ADDRESS_B);
-    final Bytes32 valueA = AccountBasicDataEncoder.encodeBasicData(1, 0, UInt256.ONE);
-    final Bytes32 valueB = AccountBasicDataEncoder.encodeBasicData(2, 0, UInt256.valueOf(2));
+    final Bytes keyA = TrieKeyDerivation.getTreeKeyForBasicData(ADDRESS_A);
+    final Bytes keyB = TrieKeyDerivation.getTreeKeyForBasicData(ADDRESS_B);
+    final Bytes32 valueA = BasicDataEncoder.encodeBasicData(1, 0, UInt256.ONE);
+    final Bytes32 valueB = BasicDataEncoder.encodeBasicData(2, 0, UInt256.valueOf(2));
 
     try (EmbeddingTrieSession session = kind.open()) {
       session.put(keyA, valueA);
@@ -312,7 +307,7 @@ class Eip8297EmbeddingSectionsTest {
   @ParameterizedTest
   @EnumSource(value = TrieKind.class, mode = Mode.EXCLUDE, names = "IN_MEMORY")
   void removeAbsentSectionIsNoOp(final TrieKind kind) {
-    final Bytes key = Eip8297TreeKeyDerivation.getTreeKeyForBasicData(ADDRESS_A);
+    final Bytes key = TrieKeyDerivation.getTreeKeyForBasicData(ADDRESS_A);
 
     try (EmbeddingTrieSession session = kind.open()) {
       session.commit();
@@ -395,18 +390,18 @@ class Eip8297EmbeddingSectionsTest {
     BASIC_DATA {
       @Override
       Bytes key() {
-        return Eip8297TreeKeyDerivation.getTreeKeyForBasicData(ADDRESS_A);
+        return TrieKeyDerivation.getTreeKeyForBasicData(ADDRESS_A);
       }
 
       @Override
       Bytes32 value() {
-        return AccountBasicDataEncoder.encodeBasicData(10, 20, UInt256.valueOf(999));
+        return BasicDataEncoder.encodeBasicData(10, 20, UInt256.valueOf(999));
       }
     },
     CODE_HASH_SECTION {
       @Override
       Bytes key() {
-        return Eip8297TreeKeyDerivation.getTreeKeyForCodeHash(ADDRESS_A);
+        return TrieKeyDerivation.getTreeKeyForCodeHash(ADDRESS_A);
       }
 
       @Override
@@ -417,7 +412,7 @@ class Eip8297EmbeddingSectionsTest {
     HEADER_STORAGE {
       @Override
       Bytes key() {
-        return Eip8297TreeKeyDerivation.getTreeKeyForStorageSlot(ADDRESS_A, UInt256.valueOf(5));
+        return TrieKeyDerivation.getTreeKeyForStorageSlot(ADDRESS_A, UInt256.valueOf(5));
       }
 
       @Override
@@ -428,7 +423,7 @@ class Eip8297EmbeddingSectionsTest {
     OVERFLOW_STORAGE {
       @Override
       Bytes key() {
-        return Eip8297TreeKeyDerivation.getTreeKeyForStorageSlot(ADDRESS_A, UInt256.valueOf(1000));
+        return TrieKeyDerivation.getTreeKeyForStorageSlot(ADDRESS_A, UInt256.valueOf(1000));
       }
 
       @Override
@@ -439,7 +434,7 @@ class Eip8297EmbeddingSectionsTest {
     HEADER_CODE_CHUNK {
       @Override
       Bytes key() {
-        return Eip8297TreeKeyDerivation.getTreeKeyForCodeChunk(
+        return TrieKeyDerivation.getTreeKeyForCodeChunk(
             ADDRESS_A, Eip8297EmbeddingSectionsTest.CODE_HASH, 5);
       }
 
@@ -451,7 +446,7 @@ class Eip8297EmbeddingSectionsTest {
     OVERFLOW_CODE_CHUNK {
       @Override
       Bytes key() {
-        return Eip8297TreeKeyDerivation.getTreeKeyForCodeChunk(
+        return TrieKeyDerivation.getTreeKeyForCodeChunk(
             ADDRESS_A, Eip8297EmbeddingSectionsTest.CODE_HASH, 300);
       }
 

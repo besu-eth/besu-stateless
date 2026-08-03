@@ -47,13 +47,4 @@ public final class BitUtils {
   public static Bytes sliceBits(final Bytes bits, final int from, final int to) {
     return bits.slice(from, to - from);
   }
-
-  /** Concatenate a bit list, one split bit, and another bit list. */
-  public static Bytes concatBits(final Bytes prefix, final int splitBit, final Bytes suffix) {
-    final byte[] bits = new byte[prefix.size() + 1 + suffix.size()];
-    prefix.copyTo(org.apache.tuweni.bytes.MutableBytes.wrap(bits), 0);
-    bits[prefix.size()] = (byte) splitBit;
-    suffix.copyTo(org.apache.tuweni.bytes.MutableBytes.wrap(bits), prefix.size() + 1);
-    return Bytes.wrap(bits);
-  }
 }

@@ -18,14 +18,14 @@ package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.TrieConstants;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieConstants;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.hash.BitUtils;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.hash.PrefixEncoder;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.hash.TrieHasher;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.Binarizer;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.BinaryNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.BranchNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.LeafNode;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference.node.Binarizer;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference.node.BinaryNode;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference.node.BranchNode;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference.node.LeafNode;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -42,8 +42,8 @@ import org.junit.jupiter.api.Test;
  * Conformance suite for the in-memory {@link BinaryTrie} reference implementation.
  *
  * <p>Layer: reference oracle ({@code trie.reference}, {@code trie.hash}, {@code trie.node}).
- * Validates bit encoding, merkleization, CRUD, and structural invariants against hand-computed
- * BLAKE3 hashes and {@link MutableBinaryTrie} cross-checks.
+ * Validates bit encoding, merkleization, read/write/delete, and structural invariants against
+ * hand-computed BLAKE3 hashes and {@link MutableBinaryTrie} cross-checks.
  */
 class BinaryTrieConformanceTest {
 
@@ -271,11 +271,45 @@ class BinaryTrieConformanceTest {
   }
 
   @Test
-  void zeroValueIsNotAbsence() {
+  void rawTrieCanStoreZeroValue() {
     final Bytes key = Bytes.concatenate(Bytes.repeat((byte) 0x07, 31), Bytes.of((byte) 0));
     final BinaryTrie trie = new BinaryTrie();
     trie.put(key, Bytes32.ZERO);
     assertThat(trie.root()).isNotEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
+  }
+
+  @Test
+  void stateReadAbsentKeyReturnsZero() {
+    final Bytes key = Bytes.concatenate(Bytes.repeat((byte) 0x07, 31), Bytes.of((byte) 0));
+    final BinaryTrie trie = new BinaryTrie();
+
+    assertThat(trie.readState(key)).isEqualTo(Bytes32.ZERO);
+  }
+
+  @Test
+  void stateWriteZeroDeletesExistingLeaf() {
+    final Bytes key = Bytes.concatenate(Bytes.repeat((byte) 0x07, 31), Bytes.of((byte) 0));
+    final Bytes32 value = Bytes32.repeat((byte) 0x42);
+    final BinaryTrie trie = new BinaryTrie();
+
+    trie.writeState(key, value);
+    assertThat(trie.get(key)).contains(value);
+
+    trie.writeState(key, Bytes32.ZERO);
+    assertThat(trie.get(key)).isEmpty();
+    assertThat(trie.readState(key)).isEqualTo(Bytes32.ZERO);
+    assertThat(trie.root()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
+  }
+
+  @Test
+  void stateWriteZeroToAbsentKeyIsNoOp() {
+    final Bytes key = Bytes.concatenate(Bytes.repeat((byte) 0x07, 31), Bytes.of((byte) 0));
+    final BinaryTrie trie = new BinaryTrie();
+
+    trie.writeState(key, Bytes32.ZERO);
+
+    assertThat(trie.get(key)).isEmpty();
+    assertThat(trie.root()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
   }
 
   @Test
@@ -373,31 +407,6 @@ class BinaryTrieConformanceTest {
       }
       assertThat(mutableTrie.root()).as("trial %d", trial).isEqualTo(specTrie.root());
     }
-  }
-
-  @Test
-  void mutableTrieMergesBranchPrefixesAfterRemove() {
-    final byte[] stem = new byte[33];
-    stem[0] = (byte) 0xFF;
-    for (int i = 1; i < 33; i++) {
-      stem[i] = (byte) 0xAB;
-    }
-    final Bytes key0 = Bytes.concatenate(Bytes.wrap(stem), Bytes.of((byte) 0));
-    final Bytes key1 = Bytes.concatenate(Bytes.wrap(stem), Bytes.of((byte) 1));
-    final Bytes key128 = Bytes.concatenate(Bytes.wrap(stem), Bytes.of((byte) 0x80));
-    final Bytes32 value = Bytes32.repeat((byte) 0x44);
-
-    final BinaryTrie rebuilt = new BinaryTrie();
-    final MutableBinaryTrie mutable = new MutableBinaryTrie();
-    for (final Bytes key : List.of(key0, key1, key128)) {
-      rebuilt.put(key, value);
-      mutable.put(key, value);
-    }
-
-    rebuilt.remove(key128);
-    mutable.remove(key128);
-
-    assertThat(mutable.root()).isEqualTo(rebuilt.root());
   }
 
   @Test

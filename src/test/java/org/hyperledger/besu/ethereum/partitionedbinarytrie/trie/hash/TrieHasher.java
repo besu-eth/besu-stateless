@@ -15,10 +15,10 @@
  */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.hash;
 
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.TrieConstants;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.BinaryNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.BranchNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.LeafNode;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieConstants;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference.node.BinaryNode;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference.node.BranchNode;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference.node.LeafNode;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;

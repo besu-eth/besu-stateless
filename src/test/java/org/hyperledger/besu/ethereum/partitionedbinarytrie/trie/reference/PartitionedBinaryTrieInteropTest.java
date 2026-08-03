@@ -16,13 +16,16 @@
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.codec.AccountBasicDataEncoder;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.codec.CodeChunkifier;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.keys.Eip8297TreeKeyDerivation;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.TrieConstants;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.core.PartitionedBinaryTrie;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.BasicDataEncoder;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.CodeChunkifier;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieConstants;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKeyDerivation;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.PartitionedBinaryTrie;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.hash.TrieHasher;
+
+import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -32,7 +35,7 @@ import org.junit.jupiter.api.Test;
 /**
  * Cross-client and execution-specs interop vectors for EIP-8297.
  *
- * <p>Layer: interop (embedding + stored core vs reference). Neutral oracle: {@code
+ * <p>Layer: interop (embedding + trie storage vs reference). Neutral oracle: {@code
  * ethereum.binary_trie} on the {@code bin-trie} branch of execution-specs
  * (kevaundray/execution-specs#9). This library follows that branch/leaf model with domain-tagged
  * BLAKE3 preimages and 34/66-byte variable-length embedding keys.
@@ -105,11 +108,67 @@ class PartitionedBinaryTrieInteropTest {
   }
 
   @Test
+  void prefixFreeViolationIsRejectedWhenExistingKeyIsShorter() {
+    final PartitionedBinaryTrie trie = new PartitionedBinaryTrie();
+    trie.put(Bytes.fromHexString("0xaa"), Bytes32.repeat((byte) 0x01));
+
+    assertThatThrownBy(() -> trie.put(Bytes.fromHexString("0xaabb"), Bytes32.repeat((byte) 0x02)))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  void prefixFreeViolationIsRejectedWhenInsertedKeyIsShorter() {
+    final PartitionedBinaryTrie trie = new PartitionedBinaryTrie();
+    trie.put(Bytes.fromHexString("0xaa00"), Bytes32.repeat((byte) 0x01));
+    trie.put(Bytes.fromHexString("0xaa80"), Bytes32.repeat((byte) 0x02));
+
+    assertThatThrownBy(() -> trie.put(Bytes.fromHexString("0xaa"), Bytes32.repeat((byte) 0x03)))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  void prefixFreeViolationIsRejectedForDeferredPut() {
+    final PartitionedBinaryTrie trie = new PartitionedBinaryTrie();
+    trie.put(Bytes.fromHexString("0xaa"), Bytes32.repeat((byte) 0x01));
+
+    assertThatThrownBy(
+            () ->
+                trie.putDeferred(
+                    Bytes.fromHexString("0xaabb"),
+                    existing -> Optional.of(Bytes32.repeat((byte) 0x02))))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  void lookupOfPrefixKeyIsAbsentRatherThanOutOfBounds() {
+    final PartitionedBinaryTrie trie = new PartitionedBinaryTrie();
+    trie.put(Bytes.fromHexString("0xaa00"), Bytes32.repeat((byte) 0x01));
+    trie.put(Bytes.fromHexString("0xaa80"), Bytes32.repeat((byte) 0x02));
+
+    assertThat(trie.get(Bytes.fromHexString("0xaa"))).isEmpty();
+    assertThat(trie.getValueWithProof(Bytes.fromHexString("0xaa")).getValue()).isEmpty();
+  }
+
+  @Test
+  void keyLengthCannotExceedProvidedBytes() {
+    final PartitionedBinaryTrie trie = new PartitionedBinaryTrie();
+    final byte[] key = Bytes.fromHexString("0xaa").toArrayUnsafe();
+    final byte[] value = Bytes32.repeat((byte) 0x01).toArrayUnsafe();
+
+    assertThatThrownBy(() -> trie.put(key, key.length + 1, value))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> trie.get(key, key.length + 1))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> trie.remove(key, key.length + 1))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
   void accountBasicDataAndCodeHashRoot() {
-    final Bytes basicDataKey = Eip8297TreeKeyDerivation.getTreeKeyForBasicData(ADDRESS);
-    final Bytes codeHashKey = Eip8297TreeKeyDerivation.getTreeKeyForCodeHash(ADDRESS);
-    final Bytes32 basicData = AccountBasicDataEncoder.encodeBasicData(1, 42, UInt256.valueOf(1000));
-    final Bytes32 codeHash = Eip8297TreeKeyDerivation.EMPTY_CODE_HASH;
+    final Bytes basicDataKey = TrieKeyDerivation.getTreeKeyForBasicData(ADDRESS);
+    final Bytes codeHashKey = TrieKeyDerivation.getTreeKeyForCodeHash(ADDRESS);
+    final Bytes32 basicData = BasicDataEncoder.encodeBasicData(1, 42, UInt256.valueOf(1000));
+    final Bytes32 codeHash = TrieKeyDerivation.EMPTY_CODE_HASH;
 
     final BinaryTrie specTrie = new BinaryTrie();
     specTrie.put(basicDataKey, basicData);
@@ -124,10 +183,10 @@ class PartitionedBinaryTrieInteropTest {
 
   @Test
   void multiKeyEmbeddingScenarioRoot() {
-    final Bytes basicDataKey = Eip8297TreeKeyDerivation.getTreeKeyForBasicData(ADDRESS);
+    final Bytes basicDataKey = TrieKeyDerivation.getTreeKeyForBasicData(ADDRESS);
     final Bytes storageKey =
-        Eip8297TreeKeyDerivation.getTreeKeyForStorageSlot(ADDRESS, UInt256.valueOf(5));
-    final Bytes32 basicData = AccountBasicDataEncoder.encodeBasicData(0, 0, UInt256.ZERO);
+        TrieKeyDerivation.getTreeKeyForStorageSlot(ADDRESS, UInt256.valueOf(5));
+    final Bytes32 basicData = BasicDataEncoder.encodeBasicData(0, 0, UInt256.ZERO);
     final Bytes32 slotValue =
         Bytes32.fromHexString("00000000000000000000000000000000000000000000000000000000deadbeef");
 
@@ -152,17 +211,17 @@ class PartitionedBinaryTrieInteropTest {
   void sharedEipEmbeddingVectorsAlignWithNethermindKeyDerivation() {
     // Pinned independently in Nethermind KeyDerivationTests and execution-specs
     // test_binary_trie_embedding.py — stems/sub-indices only, not trie roots.
-    assertThat(Eip8297TreeKeyDerivation.getTreeKeyForBasicData(ADDRESS))
+    assertThat(TrieKeyDerivation.getTreeKeyForBasicData(ADDRESS))
         .isEqualTo(
             Bytes.fromHexString(
                 "00d9ae2d236f8713a5bf808cda488167a56cc97e4b83006f42b1c06c0c3f053bbf00"));
-    assertThat(Eip8297TreeKeyDerivation.getTreeKeyForStorageSlot(ADDRESS, UInt256.valueOf(5)))
+    assertThat(TrieKeyDerivation.getTreeKeyForStorageSlot(ADDRESS, UInt256.valueOf(5)))
         .isEqualTo(
             Bytes.fromHexString(
                 "00d9ae2d236f8713a5bf808cda488167a56cc97e4b83006f42b1c06c0c3f053bbf45"));
 
     final Bytes storage1000Key =
-        Eip8297TreeKeyDerivation.getTreeKeyForStorageSlot(ADDRESS, UInt256.valueOf(1000));
+        TrieKeyDerivation.getTreeKeyForStorageSlot(ADDRESS, UInt256.valueOf(1000));
     assertThat(storage1000Key.slice(storage1000Key.size() - 4, 4))
         .isEqualTo(Bytes.fromHexString("7650f9e8"));
 
@@ -178,13 +237,12 @@ class PartitionedBinaryTrieInteropTest {
                 (byte) 'o',
                 (byte) 'd',
                 (byte) 'e'));
-    final Bytes codeChunk300Key =
-        Eip8297TreeKeyDerivation.getTreeKeyForCodeChunk(ADDRESS, codeHash, 300);
+    final Bytes codeChunk300Key = TrieKeyDerivation.getTreeKeyForCodeChunk(ADDRESS, codeHash, 300);
     assertThat(codeChunk300Key.slice(codeChunk300Key.size() - 4, 4))
         .isEqualTo(Bytes.fromHexString("a4ecadac"));
 
     assertThat(
-            AccountBasicDataEncoder.encodeBasicData(
+            BasicDataEncoder.encodeBasicData(
                 0x11223344L,
                 0x5566778899aabbccl,
                 UInt256.fromHexString("0123456789abcdef0123456789abcdef")))

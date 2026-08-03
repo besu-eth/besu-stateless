@@ -15,12 +15,12 @@
  */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference;
 
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.TrieConstants;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieConstants;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.hash.BitUtils;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.hash.TrieHasher;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.BinaryNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.BranchNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.LeafNode;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference.node.BinaryNode;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference.node.BranchNode;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference.node.LeafNode;
 
 import java.util.Optional;
 
@@ -82,8 +82,8 @@ public final class MutableBinaryTrie {
   /**
    * Removes a key if present.
    *
-   * <p>Absent keys produce no trie nodes (non-sparse trie). This is distinct from storing {@link
-   * Bytes32#ZERO}.
+   * <p>Absent keys produce no trie nodes in the raw trie. EIP-8297 state writes additionally map
+   * {@link Bytes32#ZERO} values to deletion.
    *
    * @param key key to remove
    */
@@ -223,27 +223,16 @@ public final class MutableBinaryTrie {
         if (BitUtils.bitAt(bits, split) == 0) {
           final BinaryNode updatedLeft = removeNode(branch.left(), key, split + 1);
           if (updatedLeft == null) {
-            yield mergeSurvivor(branch.prefix(), 1, branch.right());
+            yield branch.right();
           }
           yield new BranchNode(branch.prefix(), updatedLeft, branch.right());
         }
         final BinaryNode updatedRight = removeNode(branch.right(), key, split + 1);
         if (updatedRight == null) {
-          yield mergeSurvivor(branch.prefix(), 0, branch.left());
+          yield branch.left();
         }
         yield new BranchNode(branch.prefix(), branch.left(), updatedRight);
       }
     };
-  }
-
-  private static BinaryNode mergeSurvivor(
-      final Bytes parentPrefix, final int survivorSplitBit, final BinaryNode survivor) {
-    if (survivor instanceof final BranchNode branch) {
-      return new BranchNode(
-          BitUtils.concatBits(parentPrefix, survivorSplitBit, branch.prefix()),
-          branch.left(),
-          branch.right());
-    }
-    return survivor;
   }
 }

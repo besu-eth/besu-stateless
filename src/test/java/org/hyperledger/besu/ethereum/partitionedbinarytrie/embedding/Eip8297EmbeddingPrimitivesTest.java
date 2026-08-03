@@ -18,10 +18,10 @@ package org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.codec.AccountBasicDataEncoder;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.codec.CodeChunkifier;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.keys.Eip8297TreeKeyDerivation;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.params.Eip8297EmbeddingParameters;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.BasicDataEncoder;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.CodeChunkifier;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKeyDerivation;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.params.EmbeddingParameters;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.hash.TrieHasher;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -59,36 +59,42 @@ class Eip8297EmbeddingPrimitivesTest {
 
   @Test
   void embeddingConstants() {
-    assertThat(Eip8297EmbeddingParameters.BASIC_DATA_LEAF_KEY).isEqualTo(0);
-    assertThat(Eip8297EmbeddingParameters.CODE_HASH_LEAF_KEY).isEqualTo(1);
-    assertThat(Eip8297EmbeddingParameters.HEADER_STORAGE_OFFSET).isEqualTo(64);
-    assertThat(Eip8297EmbeddingParameters.CODE_OFFSET).isEqualTo(128);
-    assertThat(Eip8297EmbeddingParameters.STEM_SUBTREE_WIDTH).isEqualTo(256);
-    assertThat(Eip8297EmbeddingParameters.ACCOUNT_ZONE).isEqualTo(0);
-    assertThat(Eip8297EmbeddingParameters.CODE_ZONE).isEqualTo(1);
-    assertThat(Eip8297EmbeddingParameters.STORAGE_ZONE).isEqualTo(255);
-    assertThat(Eip8297EmbeddingParameters.ACCOUNT_KEY_LENGTH).isEqualTo(34);
-    assertThat(Eip8297EmbeddingParameters.CODE_KEY_LENGTH).isEqualTo(34);
-    assertThat(Eip8297EmbeddingParameters.STORAGE_KEY_LENGTH).isEqualTo(66);
+    assertThat(EmbeddingParameters.BASIC_DATA_LEAF_KEY).isEqualTo(0);
+    assertThat(EmbeddingParameters.CODE_HASH_LEAF_KEY).isEqualTo(1);
+    assertThat(EmbeddingParameters.HEADER_STORAGE_OFFSET).isEqualTo(64);
+    assertThat(EmbeddingParameters.CODE_OFFSET).isEqualTo(128);
+    assertThat(EmbeddingParameters.STEM_SUBTREE_WIDTH).isEqualTo(256);
+    assertThat(EmbeddingParameters.ACCOUNT_ZONE).isEqualTo(0);
+    assertThat(EmbeddingParameters.CODE_ZONE).isEqualTo(1);
+    assertThat(EmbeddingParameters.STORAGE_ZONE).isEqualTo(255);
+    assertThat(EmbeddingParameters.ACCOUNT_KEY_LENGTH).isEqualTo(34);
+    assertThat(EmbeddingParameters.CODE_KEY_LENGTH).isEqualTo(34);
+    assertThat(EmbeddingParameters.STORAGE_KEY_LENGTH).isEqualTo(66);
   }
 
   @Test
   void address20ToAddress32PrependsZeros() {
     final Bytes address = Bytes.repeat((byte) 0xAA, 20);
-    assertThat(Eip8297TreeKeyDerivation.address20ToAddress32(address)).isEqualTo(ADDRESS);
+    assertThat(TrieKeyDerivation.address20ToAddress32(address)).isEqualTo(ADDRESS);
   }
 
   @Test
   void emptyCodeHashIsKeccakOfEmpty() {
-    assertThat(Eip8297TreeKeyDerivation.EMPTY_CODE_HASH)
+    assertThat(TrieKeyDerivation.EMPTY_CODE_HASH)
         .isEqualTo(
             Bytes32.fromHexString(
                 "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"));
   }
 
   @Test
+  void negativeNonceIsRejected() {
+    assertThatThrownBy(() -> BasicDataEncoder.encodeBasicData(0, -1, UInt256.ZERO))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
   void keyHashIsBlake3() {
-    assertThat(Eip8297TreeKeyDerivation.keyHash(ADDRESS)).isEqualTo(blake3Bytes(ADDRESS));
+    assertThat(TrieKeyDerivation.keyHash(ADDRESS)).isEqualTo(blake3Bytes(ADDRESS));
   }
 
   @Test
@@ -97,7 +103,7 @@ class Eip8297EmbeddingPrimitivesTest {
         blake3Bytes(
             Bytes.of((byte) 'd', (byte) 'i', (byte) 'g', (byte) 'e', (byte) 's', (byte) 't'));
     for (final int zone : new int[] {0, 1, 2, 254, 255}) {
-      final Bytes key = Eip8297TreeKeyDerivation.getTreeKey(zone, digest, 7);
+      final Bytes key = TrieKeyDerivation.getTreeKey(zone, digest, 7);
       assertThat(key.size()).isEqualTo(34);
       assertThat(key)
           .isEqualTo(Bytes.concatenate(Bytes.of((byte) zone), digest, Bytes.of((byte) 7)));
@@ -105,25 +111,34 @@ class Eip8297EmbeddingPrimitivesTest {
   }
 
   @Test
+  void getTreeKeyRejectsZoneOutsideOneByte() {
+    final Bytes digest = blake3Bytes(Bytes.of((byte) 'x'));
+
+    assertThatThrownBy(() -> TrieKeyDerivation.getTreeKey(-1, digest, 0))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> TrieKeyDerivation.getTreeKey(256, digest, 0))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
   void headerSubIndexWiderThanOneByteIsRejected() {
-    assertThatThrownBy(() -> Eip8297TreeKeyDerivation.getTreeKeyForHeader(ADDRESS, 256))
+    assertThatThrownBy(() -> TrieKeyDerivation.getTreeKeyForHeader(ADDRESS, 256))
         .isInstanceOf(IllegalArgumentException.class);
   }
 
   @Test
   void headerKeyVectors() {
     final Bytes stem = Bytes.wrap(headerStem(ADDRESS));
-    assertThat(Eip8297TreeKeyDerivation.getTreeKeyForBasicData(ADDRESS))
+    assertThat(TrieKeyDerivation.getTreeKeyForBasicData(ADDRESS))
         .isEqualTo(Bytes.concatenate(stem, Bytes.of((byte) 0)));
-    assertThat(Eip8297TreeKeyDerivation.getTreeKeyForCodeHash(ADDRESS))
+    assertThat(TrieKeyDerivation.getTreeKeyForCodeHash(ADDRESS))
         .isEqualTo(Bytes.concatenate(stem, Bytes.of((byte) 1)));
-    assertThat(Eip8297TreeKeyDerivation.getTreeKeyForBasicData(ADDRESS).size()).isEqualTo(34);
+    assertThat(TrieKeyDerivation.getTreeKeyForBasicData(ADDRESS).size()).isEqualTo(34);
   }
 
   @Test
   void storageSlotInHeaderVector() {
-    final Bytes key =
-        Eip8297TreeKeyDerivation.getTreeKeyForStorageSlot(ADDRESS, UInt256.valueOf(5));
+    final Bytes key = TrieKeyDerivation.getTreeKeyForStorageSlot(ADDRESS, UInt256.valueOf(5));
     assertThat(key)
         .isEqualTo(Bytes.concatenate(Bytes.wrap(headerStem(ADDRESS)), Bytes.of((byte) 0x45)));
   }
@@ -145,8 +160,7 @@ class Eip8297EmbeddingPrimitivesTest {
 
     final Bytes stem =
         Bytes.concatenate(Bytes.of((byte) 0xFF), Bytes.wrap(prefix), Bytes.wrap(suffix));
-    final Bytes key =
-        Eip8297TreeKeyDerivation.getTreeKeyForStorageSlot(ADDRESS, UInt256.valueOf(1000));
+    final Bytes key = TrieKeyDerivation.getTreeKeyForStorageSlot(ADDRESS, UInt256.valueOf(1000));
     assertThat(key).isEqualTo(Bytes.concatenate(stem, Bytes.of((byte) 0xE8)));
     assertThat(key.size()).isEqualTo(66);
     assertThat(key.get(0)).isEqualTo((byte) 0xFF);
@@ -154,15 +168,15 @@ class Eip8297EmbeddingPrimitivesTest {
 
   @Test
   void storageSlotBoundaryIs64() {
-    assertThat(Eip8297TreeKeyDerivation.getTreeKeyForStorageSlot(ADDRESS, UInt256.valueOf(63)))
+    assertThat(TrieKeyDerivation.getTreeKeyForStorageSlot(ADDRESS, UInt256.valueOf(63)))
         .isEqualTo(Bytes.concatenate(Bytes.wrap(headerStem(ADDRESS)), Bytes.of((byte) 127)));
 
     final Bytes overflowStem =
         Bytes.concatenate(
             Bytes.of((byte) 0xFF),
             blake3Bytes(ADDRESS),
-            Eip8297TreeKeyDerivation.keyHash(Bytes.concatenate(ADDRESS, Bytes32.ZERO)));
-    assertThat(Eip8297TreeKeyDerivation.getTreeKeyForStorageSlot(ADDRESS, UInt256.valueOf(64)))
+            TrieKeyDerivation.keyHash(Bytes.concatenate(ADDRESS, Bytes32.ZERO)));
+    assertThat(TrieKeyDerivation.getTreeKeyForStorageSlot(ADDRESS, UInt256.valueOf(64)))
         .isEqualTo(Bytes.concatenate(overflowStem, Bytes.of((byte) 64)));
   }
 
@@ -180,7 +194,7 @@ class Eip8297EmbeddingPrimitivesTest {
                 (byte) 'o',
                 (byte) 'd',
                 (byte) 'e'));
-    final Bytes key = Eip8297TreeKeyDerivation.getTreeKeyForCodeChunk(ADDRESS, codeHash, 5);
+    final Bytes key = TrieKeyDerivation.getTreeKeyForCodeChunk(ADDRESS, codeHash, 5);
     assertThat(key)
         .isEqualTo(Bytes.concatenate(Bytes.wrap(headerStem(ADDRESS)), Bytes.of((byte) 0x85)));
   }
@@ -199,13 +213,20 @@ class Eip8297EmbeddingPrimitivesTest {
                 (byte) 'o',
                 (byte) 'd',
                 (byte) 'e'));
-    final Bytes digest =
-        Eip8297TreeKeyDerivation.keyHash(Bytes.concatenate(codeHash, Bytes32.ZERO));
+    final Bytes digest = TrieKeyDerivation.keyHash(Bytes.concatenate(codeHash, Bytes32.ZERO));
     final Bytes stem = Bytes.concatenate(Bytes.of((byte) 1), digest);
 
-    final Bytes key = Eip8297TreeKeyDerivation.getTreeKeyForCodeChunk(ADDRESS, codeHash, 300);
+    final Bytes key = TrieKeyDerivation.getTreeKeyForCodeChunk(ADDRESS, codeHash, 300);
     assertThat(key).isEqualTo(Bytes.concatenate(stem, Bytes.of((byte) 0xAC)));
     assertThat(key.size()).isEqualTo(34);
+  }
+
+  @Test
+  void negativeCodeChunkIndexIsRejected() {
+    assertThatThrownBy(
+            () ->
+                TrieKeyDerivation.getTreeKeyForCodeChunk(ADDRESS, Bytes32.repeat((byte) 0x01), -1))
+        .isInstanceOf(IllegalArgumentException.class);
   }
 
   @Test
@@ -231,10 +252,10 @@ class Eip8297EmbeddingPrimitivesTest {
     final Bytes32 other =
         Bytes32.fromHexString("000000000000000000000000bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
 
-    assertThat(Eip8297TreeKeyDerivation.getTreeKeyForCodeChunk(ADDRESS, codeHash, 200))
-        .isEqualTo(Eip8297TreeKeyDerivation.getTreeKeyForCodeChunk(other, codeHash, 200));
-    assertThat(Eip8297TreeKeyDerivation.getTreeKeyForCodeChunk(ADDRESS, codeHash, 5))
-        .isNotEqualTo(Eip8297TreeKeyDerivation.getTreeKeyForCodeChunk(other, codeHash, 5));
+    assertThat(TrieKeyDerivation.getTreeKeyForCodeChunk(ADDRESS, codeHash, 200))
+        .isEqualTo(TrieKeyDerivation.getTreeKeyForCodeChunk(other, codeHash, 200));
+    assertThat(TrieKeyDerivation.getTreeKeyForCodeChunk(ADDRESS, codeHash, 5))
+        .isNotEqualTo(TrieKeyDerivation.getTreeKeyForCodeChunk(other, codeHash, 5));
   }
 
   @Test
@@ -342,7 +363,7 @@ class Eip8297EmbeddingPrimitivesTest {
   @Test
   void encodeBasicDataLayout() {
     final Bytes32 value =
-        AccountBasicDataEncoder.encodeBasicData(
+        BasicDataEncoder.encodeBasicData(
             0x11223344L,
             0x5566778899aabbccl,
             UInt256.fromHexString("0123456789abcdef0123456789abcdef"));
@@ -357,8 +378,7 @@ class Eip8297EmbeddingPrimitivesTest {
 
   @Test
   void encodeBasicDataRejectsBalancePastSixteenBytes() {
-    assertThatThrownBy(
-            () -> AccountBasicDataEncoder.encodeBasicData(0, 0, UInt256.valueOf(2).pow(128)))
+    assertThatThrownBy(() -> BasicDataEncoder.encodeBasicData(0, 0, UInt256.valueOf(2).pow(128)))
         .isInstanceOf(IllegalArgumentException.class);
   }
 }

@@ -17,7 +17,7 @@ package org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.hash;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.TrieConstants;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieConstants;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;

@@ -17,9 +17,9 @@ package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.codec.AccountBasicDataEncoder;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.codec.CodeChunkifier;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.keys.Eip8297TreeKeyDerivation;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.BasicDataEncoder;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.CodeChunkifier;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKeyDerivation;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.hash.TrieHasher;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -63,16 +63,16 @@ class BinaryTrieReferenceVectorsTest {
             Bytes32.fromHexString(
                 "236789e96c40914f04ac2418aca5a8e71540e78a355326ad26aab3db9107016d"));
 
-    assertThat(Eip8297TreeKeyDerivation.getTreeKeyForBasicData(ADDRESS))
+    assertThat(TrieKeyDerivation.getTreeKeyForBasicData(ADDRESS))
         .isEqualTo(
             Bytes.fromHexString(
                 "00d9ae2d236f8713a5bf808cda488167a56cc97e4b83006f42b1c06c0c3f053bbf00"));
-    assertThat(Eip8297TreeKeyDerivation.getTreeKeyForStorageSlot(ADDRESS, UInt256.valueOf(5)))
+    assertThat(TrieKeyDerivation.getTreeKeyForStorageSlot(ADDRESS, UInt256.valueOf(5)))
         .isEqualTo(
             Bytes.fromHexString(
                 "00d9ae2d236f8713a5bf808cda488167a56cc97e4b83006f42b1c06c0c3f053bbf45"));
     final Bytes storage1000Key =
-        Eip8297TreeKeyDerivation.getTreeKeyForStorageSlot(ADDRESS, UInt256.valueOf(1000));
+        TrieKeyDerivation.getTreeKeyForStorageSlot(ADDRESS, UInt256.valueOf(1000));
     assertThat(storage1000Key.slice(storage1000Key.size() - 4, 4))
         .isEqualTo(Bytes.fromHexString("7650f9e8"));
 
@@ -88,13 +88,12 @@ class BinaryTrieReferenceVectorsTest {
                 (byte) 'o',
                 (byte) 'd',
                 (byte) 'e'));
-    final Bytes codeChunk300Key =
-        Eip8297TreeKeyDerivation.getTreeKeyForCodeChunk(ADDRESS, codeHash, 300);
+    final Bytes codeChunk300Key = TrieKeyDerivation.getTreeKeyForCodeChunk(ADDRESS, codeHash, 300);
     assertThat(codeChunk300Key.slice(codeChunk300Key.size() - 4, 4))
         .isEqualTo(Bytes.fromHexString("a4ecadac"));
 
     assertThat(
-            AccountBasicDataEncoder.encodeBasicData(
+            BasicDataEncoder.encodeBasicData(
                 0x11223344L,
                 0x5566778899aabbccl,
                 UInt256.fromHexString("0123456789abcdef0123456789abcdef")))

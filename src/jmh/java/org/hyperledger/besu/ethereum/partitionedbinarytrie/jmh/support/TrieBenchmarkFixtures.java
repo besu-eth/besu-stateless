@@ -15,11 +15,11 @@
  */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.jmh.support;
 
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding.keys.Eip8297TreeKeyDerivation;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.TrieConstants;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.core.ParallelStoredPartitionedBinaryTrie;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.core.StoredPartitionedBinaryTrie;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.stored.factory.PartitionedBinaryTrieFactory;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieConstants;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKeyDerivation;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.ParallelStoredPartitionedBinaryTrie;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.StoredPartitionedBinaryTrie;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.PartitionedBinaryTrieFactory;
 import org.hyperledger.besu.ethereum.trie.NodeUpdater;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -30,9 +30,9 @@ import org.apache.tuweni.units.bigints.UInt256;
 public final class TrieBenchmarkFixtures {
 
   public enum KeyStyle {
-    /** 34-byte account basic-data keys from {@link Eip8297TreeKeyDerivation}. */
+    /** 34-byte account basic-data keys from {@link TrieKeyDerivation}. */
     ACCOUNT_BASIC,
-    /** 66-byte storage slot keys from {@link Eip8297TreeKeyDerivation}. */
+    /** 66-byte storage slot keys from {@link TrieKeyDerivation}. */
     STORAGE_SLOT
   }
 
@@ -102,11 +102,9 @@ public final class TrieBenchmarkFixtures {
   private static byte[] keyForIndex(final int index, final KeyStyle keyStyle) {
     final Bytes32 address = addressForIndex(index);
     return switch (keyStyle) {
-      case ACCOUNT_BASIC ->
-          Eip8297TreeKeyDerivation.getTreeKeyForBasicData(address).toArrayUnsafe();
+      case ACCOUNT_BASIC -> TrieKeyDerivation.getTreeKeyForBasicData(address).toArrayUnsafe();
       case STORAGE_SLOT ->
-          Eip8297TreeKeyDerivation.getTreeKeyForStorageSlot(
-                  address, UInt256.valueOf(1_000L + index))
+          TrieKeyDerivation.getTreeKeyForStorageSlot(address, UInt256.valueOf(1_000L + index))
               .toArrayUnsafe();
     };
   }

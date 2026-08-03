@@ -15,25 +15,32 @@ The trie model follows the [execution-specs binary trie proposal](https://github
 - **Stored trie** with `NodeLoader` / `NodeUpdater` and Tuweni `Bytes` API (`putDeferred`, `commit`, `getRootHash`)
 - **Parallel commit** via `ParallelStoredPartitionedBinaryTrie`
 - **Merkle proofs** — generation and verification
-- **Spec-faithful test oracle** — `BinaryTrie` / `MutableBinaryTrie` under `src/test` (not published in the JAR)
+- **Spec-faithful test oracle** — `BinaryTrie` / `MutableBinaryTrie` under `src/test/java/.../trie/reference` (not published in the JAR)
 
 ## Architecture
 
 ```
 org.hyperledger.besu.ethereum.partitionedbinarytrie
-├── embedding/    # Key derivation, account/code encoding
+├── codec/        # Account encoding, bytecode chunking, node serialization
+├── keys/         # Trie constants and EIP-8297 key derivation
+├── params/       # Embedding parameters
 ├── internal/     # BLAKE3 hashing, byte[] hot paths (not public API)
-└── stored/       # Trie engine, visitors, proofs, serialization
+└── trie/         # Trie engine, visitors, factories
+    ├── factory/
+    ├── node/
+    └── visitor/
 ```
 
 | Package | Purpose |
 |---------|---------|
-| `embedding.keys` | EIP-8297 zone-based key derivation |
-| `embedding.codec` | Account header encoding, bytecode chunking |
-| `stored.core` | `PartitionedBinaryTrie`, `StoredPartitionedBinaryTrie` |
-| `stored.visitor` | Get/Put/Remove/Commit visitors |
-| `stored.proof` | Merkle proof generation and verification |
-| `trie.reference` (test) | Spec conformance oracle |
+| `codec` | Account header encoding, bytecode chunking, `TrieNodeCodec` |
+| `keys` | EIP-8297 zone-based key derivation (`TrieKeyDerivation`) |
+| `params` | Embedding parameters |
+| `trie` | `PartitionedBinaryTrie`, `StoredPartitionedBinaryTrie`, parallel commit |
+| `trie.factory` | `PartitionedBinaryTrieFactory`, `StoredTrieNodeFactory` |
+| `trie.node` | `BranchNode`, `LeafNode`, `StoredTrieNode` |
+| `trie.visitor` | Get/Put/Remove/Commit visitors |
+| `trie.reference` (test) | Spec conformance oracle (`BinaryTrie`, `MutableBinaryTrie`) |
 
 Hot paths use `byte[]` internally and Tuweni `Bytes` at the public API; `Blake3Hasher` and `ByteTrieOps` reuse thread-local buffers to avoid allocations.
 
