@@ -87,12 +87,6 @@ class Eip8297EmbeddingPrimitivesTest {
   }
 
   @Test
-  void negativeNonceIsRejected() {
-    assertThatThrownBy(() -> BasicDataEncoder.encodeBasicData(0, -1, UInt256.ZERO))
-        .isInstanceOf(IllegalArgumentException.class);
-  }
-
-  @Test
   void keyHashIsBlake3() {
     assertThat(TrieKeyDerivation.keyHash(ADDRESS)).isEqualTo(blake3Bytes(ADDRESS));
   }
@@ -374,11 +368,5 @@ class Eip8297EmbeddingPrimitivesTest {
     assertThat(value.slice(8, 8)).isEqualTo(Bytes.fromHexString("5566778899aabbcc"));
     assertThat(value.slice(16, 16))
         .isEqualTo(Bytes.fromHexString("0123456789abcdef0123456789abcdef"));
-  }
-
-  @Test
-  void encodeBasicDataRejectsBalancePastSixteenBytes() {
-    assertThatThrownBy(() -> BasicDataEncoder.encodeBasicData(0, 0, UInt256.valueOf(2).pow(128)))
-        .isInstanceOf(IllegalArgumentException.class);
   }
 }

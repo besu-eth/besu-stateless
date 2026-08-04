@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKey;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.NodeLoaderMock;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.NodeUpdaterMock;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.StoredTrieNodeFactory;
@@ -41,6 +42,11 @@ import org.junit.jupiter.api.Test;
  */
 class TrieVisitorBehaviorTest {
 
+  private static TrieNode traverse(
+      final TrieNode node, final PathNodeVisitor visitor, final byte[] key, final int keyLen) {
+    return node.accept(visitor, TrieKey.of(key, keyLen), 0);
+  }
+
   private NodeUpdaterMock updater;
   private StoredTrieNodeFactory factory;
 
@@ -59,7 +65,7 @@ class TrieVisitorBehaviorTest {
     @Test
     void emptyTrieReturnsEmptyNode() {
       final Bytes key = Bytes.fromHexString("0x01");
-      final TrieNode result = TrieNode.empty().accept(visitor, key.toArrayUnsafe(), key.size(), 0);
+      final TrieNode result = traverse(TrieNode.empty(), visitor, key.toArrayUnsafe(), key.size());
       assertThat(result).isInstanceOf(EmptyTrieNode.class);
       assertThat(result.leafValue()).isEmpty();
     }
@@ -69,7 +75,7 @@ class TrieVisitorBehaviorTest {
       final Bytes key = Bytes.fromHexString("0xbeef");
       final byte[] value = Bytes32.repeat((byte) 0x55).toArrayUnsafe();
       final LeafNode leaf = new LeafNode(key.toArrayUnsafe(), key.size(), value, false);
-      final TrieNode result = leaf.accept(visitor, key.toArrayUnsafe(), key.size(), 0);
+      final TrieNode result = traverse(leaf, visitor, key.toArrayUnsafe(), key.size());
       assertThat(result).isSameAs(leaf);
       assertThat(result.leafValue()).contains(value);
     }
@@ -80,7 +86,7 @@ class TrieVisitorBehaviorTest {
       final Bytes other = Bytes.fromHexString("0xcafe");
       final byte[] value = Bytes32.repeat((byte) 1).toArrayUnsafe();
       final LeafNode leaf = new LeafNode(key.toArrayUnsafe(), key.size(), value, false);
-      final TrieNode result = leaf.accept(visitor, other.toArrayUnsafe(), other.size(), 0);
+      final TrieNode result = traverse(leaf, visitor, other.toArrayUnsafe(), other.size());
       assertThat(result).isInstanceOf(EmptyTrieNode.class);
     }
 
@@ -90,13 +96,16 @@ class TrieVisitorBehaviorTest {
       final Bytes keyB = Bytes.fromHexString("0x20");
       final byte[] valueB = Bytes32.repeat((byte) 0xBB).toArrayUnsafe();
       final TrieNode root =
-          new LeafNode(
+          traverse(
+              new LeafNode(
                   keyA.toArrayUnsafe(),
                   keyA.size(),
                   Bytes32.repeat((byte) 0xAA).toArrayUnsafe(),
-                  false)
-              .accept(new PutVisitor(valueB), keyB.toArrayUnsafe(), keyB.size(), 0);
-      assertThat(root.accept(visitor, keyB.toArrayUnsafe(), keyB.size(), 0).leafValue())
+                  false),
+              new PutVisitor(valueB),
+              keyB.toArrayUnsafe(),
+              keyB.size());
+      assertThat(traverse(root, visitor, keyB.toArrayUnsafe(), keyB.size()).leafValue())
           .contains(valueB);
     }
   }
@@ -110,7 +119,7 @@ class TrieVisitorBehaviorTest {
       final Bytes key = Bytes.fromHexString("0x01");
       final byte[] value = Bytes32.repeat((byte) 2).toArrayUnsafe();
       final TrieNode root =
-          TrieNode.empty().accept(new PutVisitor(value), key.toArrayUnsafe(), key.size(), 0);
+          traverse(TrieNode.empty(), new PutVisitor(value), key.toArrayUnsafe(), key.size());
       assertThat(root).isInstanceOf(LeafNode.class);
       assertThat(root.leafValue()).contains(value);
     }
@@ -121,8 +130,8 @@ class TrieVisitorBehaviorTest {
       final byte[] v1 = Bytes32.repeat((byte) 1).toArrayUnsafe();
       final byte[] v2 = Bytes32.repeat((byte) 2).toArrayUnsafe();
       TrieNode root =
-          TrieNode.empty().accept(new PutVisitor(v1), key.toArrayUnsafe(), key.size(), 0);
-      root = root.accept(new PutVisitor(v2), key.toArrayUnsafe(), key.size(), 0);
+          traverse(TrieNode.empty(), new PutVisitor(v1), key.toArrayUnsafe(), key.size());
+      root = traverse(root, new PutVisitor(v2), key.toArrayUnsafe(), key.size());
       assertThat(root.leafValue()).contains(v2);
     }
 
@@ -133,12 +142,12 @@ class TrieVisitorBehaviorTest {
       final byte[] valueA = Bytes32.repeat((byte) 0x01).toArrayUnsafe();
       final byte[] valueB = Bytes32.repeat((byte) 0x02).toArrayUnsafe();
       TrieNode root =
-          TrieNode.empty().accept(new PutVisitor(valueA), keyA.toArrayUnsafe(), keyA.size(), 0);
-      root = root.accept(new PutVisitor(valueB), keyB.toArrayUnsafe(), keyB.size(), 0);
+          traverse(TrieNode.empty(), new PutVisitor(valueA), keyA.toArrayUnsafe(), keyA.size());
+      root = traverse(root, new PutVisitor(valueB), keyB.toArrayUnsafe(), keyB.size());
       assertThat(root).isInstanceOf(BranchNode.class);
-      assertThat(root.accept(new GetVisitor(), keyA.toArrayUnsafe(), keyA.size(), 0).leafValue())
+      assertThat(traverse(root, new GetVisitor(), keyA.toArrayUnsafe(), keyA.size()).leafValue())
           .contains(valueA);
-      assertThat(root.accept(new GetVisitor(), keyB.toArrayUnsafe(), keyB.size(), 0).leafValue())
+      assertThat(traverse(root, new GetVisitor(), keyB.toArrayUnsafe(), keyB.size()).leafValue())
           .contains(valueB);
     }
   }
@@ -152,7 +161,7 @@ class TrieVisitorBehaviorTest {
     @Test
     void emptyTrieReturnsEmptyNode() {
       final Bytes key = Bytes.fromHexString("0x01");
-      final TrieNode result = TrieNode.empty().accept(visitor, key.toArrayUnsafe(), key.size(), 0);
+      final TrieNode result = traverse(TrieNode.empty(), visitor, key.toArrayUnsafe(), key.size());
       assertThat(result).isInstanceOf(EmptyTrieNode.class);
     }
 
@@ -161,7 +170,7 @@ class TrieVisitorBehaviorTest {
       final Bytes key = Bytes.fromHexString("0xbeef");
       final byte[] value = Bytes32.repeat((byte) 0x55).toArrayUnsafe();
       final LeafNode leaf = new LeafNode(key.toArrayUnsafe(), key.size(), value, false);
-      final TrieNode result = leaf.accept(visitor, key.toArrayUnsafe(), key.size(), 0);
+      final TrieNode result = traverse(leaf, visitor, key.toArrayUnsafe(), key.size());
       assertThat(result).isInstanceOf(EmptyTrieNode.class);
     }
 
@@ -171,7 +180,7 @@ class TrieVisitorBehaviorTest {
       final Bytes other = Bytes.fromHexString("0xcafe");
       final byte[] value = Bytes32.repeat((byte) 1).toArrayUnsafe();
       final LeafNode leaf = new LeafNode(key.toArrayUnsafe(), key.size(), value, false);
-      final TrieNode result = leaf.accept(visitor, other.toArrayUnsafe(), other.size(), 0);
+      final TrieNode result = traverse(leaf, visitor, other.toArrayUnsafe(), other.size());
       assertThat(result).isSameAs(leaf);
     }
 
@@ -183,16 +192,18 @@ class TrieVisitorBehaviorTest {
       final byte[] valueB = Bytes32.repeat((byte) 0x02).toArrayUnsafe();
 
       TrieNode root =
-          TrieNode.empty()
-              .accept(new PutVisitor(valueA), keyA.toArrayUnsafe(), keyA.size(), 0)
-              .accept(new PutVisitor(valueB), keyB.toArrayUnsafe(), keyB.size(), 0);
+          traverse(
+              traverse(TrieNode.empty(), new PutVisitor(valueA), keyA.toArrayUnsafe(), keyA.size()),
+              new PutVisitor(valueB),
+              keyB.toArrayUnsafe(),
+              keyB.size());
       assertThat(root).isInstanceOf(BranchNode.class);
 
-      root = root.accept(visitor, keyB.toArrayUnsafe(), keyB.size(), 0);
+      root = traverse(root, visitor, keyB.toArrayUnsafe(), keyB.size());
       assertThat(root).isInstanceOf(LeafNode.class);
-      assertThat(root.accept(new GetVisitor(), keyA.toArrayUnsafe(), keyA.size(), 0).leafValue())
+      assertThat(traverse(root, new GetVisitor(), keyA.toArrayUnsafe(), keyA.size()).leafValue())
           .contains(valueA);
-      assertThat(root.accept(new GetVisitor(), keyB.toArrayUnsafe(), keyB.size(), 0).leafValue())
+      assertThat(traverse(root, new GetVisitor(), keyB.toArrayUnsafe(), keyB.size()).leafValue())
           .isEmpty();
     }
 
@@ -201,9 +212,9 @@ class TrieVisitorBehaviorTest {
       final Bytes key = Bytes.fromHexString("0xabcd");
       final byte[] value = Bytes32.repeat((byte) 0x77).toArrayUnsafe();
       final TrieNode root =
-          TrieNode.empty().accept(new PutVisitor(value), key.toArrayUnsafe(), key.size(), 0);
+          traverse(TrieNode.empty(), new PutVisitor(value), key.toArrayUnsafe(), key.size());
       final Bytes other = Bytes.fromHexString("0xdead");
-      final TrieNode result = root.accept(visitor, other.toArrayUnsafe(), other.size(), 0);
+      final TrieNode result = traverse(root, visitor, other.toArrayUnsafe(), other.size());
       assertThat(result).isSameAs(root);
     }
   }
@@ -238,9 +249,11 @@ class TrieVisitorBehaviorTest {
       final byte[] valueA = Bytes32.repeat((byte) 0xAA).toArrayUnsafe();
       final byte[] valueB = Bytes32.repeat((byte) 0xBB).toArrayUnsafe();
       TrieNode root =
-          TrieNode.empty()
-              .accept(new PutVisitor(valueA), keyA.toArrayUnsafe(), keyA.size(), 0)
-              .accept(new PutVisitor(valueB), keyB.toArrayUnsafe(), keyB.size(), 0);
+          traverse(
+              traverse(TrieNode.empty(), new PutVisitor(valueA), keyA.toArrayUnsafe(), keyA.size()),
+              new PutVisitor(valueB),
+              keyB.toArrayUnsafe(),
+              keyB.size());
       root.accept(Bytes.EMPTY, new CommitVisitor(updater));
       assertThat(updater.storage).isNotEmpty();
       assertThat(root.isClean()).isTrue();
@@ -256,7 +269,7 @@ class TrieVisitorBehaviorTest {
       final StoredTrieNode proxy = new StoredTrieNode(factory, Bytes.EMPTY, hash);
       proxy.accept(Bytes.EMPTY, new CommitVisitor(updater));
       assertThat(proxy.isClean()).isTrue();
-      assertThat(proxy.accept(new GetVisitor(), key.toArrayUnsafe(), key.size(), 0).leafValue())
+      assertThat(traverse(proxy, new GetVisitor(), key.toArrayUnsafe(), key.size()).leafValue())
           .contains(value);
     }
 
@@ -268,8 +281,11 @@ class TrieVisitorBehaviorTest {
       spec.put(key, value);
 
       TrieNode root =
-          TrieNode.empty()
-              .accept(new PutVisitor(value.toArrayUnsafe()), key.toArrayUnsafe(), key.size(), 0);
+          traverse(
+              TrieNode.empty(),
+              new PutVisitor(value.toArrayUnsafe()),
+              key.toArrayUnsafe(),
+              key.size());
       root.accept(Bytes.EMPTY, new CommitVisitor(updater));
       assertThat(Bytes32.wrap(root.merkleHashBytes())).isEqualTo(spec.root());
     }

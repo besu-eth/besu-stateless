@@ -19,7 +19,7 @@ import org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.TrieNodeCodec;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.BranchNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.EmptyTrieNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.LeafNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.StoredTrieNode;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.TrieNode;
 import org.hyperledger.besu.ethereum.trie.NodeUpdater;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -68,8 +68,14 @@ public class CommitVisitor implements LocationNodeVisitor {
     final Bytes rightLoc =
         TrieNodeCodec.childLocation(
             location, branchNode.prefixBits(), branchNode.prefixLength(), 1);
-    branchNode.leftChild().commit(leftLoc, nodeUpdater);
-    branchNode.rightChild().commit(rightLoc, nodeUpdater);
+    final TrieNode leftChild = branchNode.leftChild();
+    if (!leftChild.isClean()) {
+      leftChild.commit(leftLoc, nodeUpdater);
+    }
+    final TrieNode rightChild = branchNode.rightChild();
+    if (!rightChild.isClean()) {
+      rightChild.commit(rightLoc, nodeUpdater);
+    }
     nodeUpdater.store(
         location,
         Bytes32.wrap(branchNode.merkleHashBytes()),
@@ -79,13 +85,5 @@ public class CommitVisitor implements LocationNodeVisitor {
             branchNode.leftChild().merkleHashBytes(),
             branchNode.rightChild().merkleHashBytes()));
     branchNode.markClean();
-  }
-
-  @Override
-  public void visit(final Bytes location, final StoredTrieNode storedNode) {
-    // Stored nodes are lazy proxies. Load the real node, commit it, then replace the in-memory copy
-    // with a clean stored proxy again.
-    storedNode.load().commit(storedNode.storageLocation(), nodeUpdater);
-    storedNode.reloadAfterCommit();
   }
 }

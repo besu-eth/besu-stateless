@@ -30,10 +30,10 @@ test {
 
 dependencies {
   implementation 'com.google.guava:guava'
-  implementation 'io.tmio:tuweni-bytes'
-  implementation 'io.tmio:tuweni-units'
+  implementation 'io.consensys.tuweni:tuweni-bytes'
+  implementation 'io.consensys.tuweni:tuweni-units'
   implementation 'org.bouncycastle:bcprov-jdk18on'
-  implementation 'org.hyperledger.besu.internal:trie'
+  implementation 'org.hyperledger.besu.internal:besu-ethereum-trie'
 
   testImplementation 'org.assertj:assertj-core'
   testImplementation 'org.junit.jupiter:junit-jupiter-api'
@@ -49,11 +49,13 @@ version = rootProject.version
 
 java {
   toolchain {
-    languageVersion = JavaLanguageVersion.of(21)
+    languageVersion = JavaLanguageVersion.of(25)
   }
+  withSourcesJar()
 }
 
 repositories {
+  mavenLocal()
   mavenCentral()
   maven {
     url = uri('https://hyperledger.jfrog.io/hyperledger/besu-maven')
@@ -155,6 +157,14 @@ publishing {
       artifactId = 'besu-stateless'
       version = project.version
       from components.java
+      versionMapping {
+        usage('java-api') {
+          fromResolutionOf('runtimeClasspath')
+        }
+        usage('java-runtime') {
+          fromResolutionResult()
+        }
+      }
       pom {
         name = 'Besu Stateless — Partitioned Binary Trie'
         description = 'EIP-8297 Partitioned Binary Trie for Hyperledger Besu'
@@ -172,5 +182,8 @@ publishing {
         }
       }
     }
+  }
+  repositories {
+    mavenLocal()
   }
 }

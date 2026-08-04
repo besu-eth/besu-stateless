@@ -16,6 +16,7 @@
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor;
 
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.bytes.ByteTrieOps;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKey;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.BranchNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.EmptyTrieNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.LeafNode;
@@ -42,16 +43,15 @@ public class RemoveVisitor implements PathNodeVisitor {
   }
 
   @Override
-  public TrieNode visit(
-      final EmptyTrieNode emptyNode, final byte[] key, final int keyLen, final int depth) {
+  public TrieNode visit(final EmptyTrieNode emptyNode, final TrieKey key, final int depth) {
     // Removing an absent key is a no-op; the empty subtree stays empty.
     return NULL_NODE;
   }
 
   @Override
-  public TrieNode visit(
-      final LeafNode leafNode, final byte[] key, final int keyLen, final int depth) {
-    if (ByteTrieOps.keysEqual(leafNode.keyBytes(), leafNode.keyLength(), key, keyLen)) {
+  public TrieNode visit(final LeafNode leafNode, final TrieKey key, final int depth) {
+    if (ByteTrieOps.keysEqual(
+        leafNode.keyBytes(), leafNode.keyLength(), key.bytes(), key.length())) {
       // Exact leaf hit: replace it with the empty node. Parents may collapse this away.
       return NULL_NODE;
     }
@@ -60,18 +60,16 @@ public class RemoveVisitor implements PathNodeVisitor {
   }
 
   @Override
-  public TrieNode visit(
-      final BranchNode branchNode, final byte[] key, final int keyLen, final int depth) {
-    final int keyBits = keyLen * 8;
+  public TrieNode visit(final BranchNode branchNode, final TrieKey key, final int depth) {
+    final int keyBits = key.bitCount();
     if (depth >= keyBits) {
       // The key ended before this branch could be matched, so nothing can be removed below it.
       return branchNode;
     }
-    final byte[] bits = ByteTrieOps.expandKeyBits(key, keyLen);
     final byte[] prefixBits = branchNode.prefixBits();
     final int prefixLen = branchNode.prefixLength();
     for (int i = 0; i < prefixLen; i++) {
-      if (depth + i >= keyBits || bits[depth + i] != prefixBits[i]) {
+      if (depth + i >= keyBits || key.bitAt(depth + i) != prefixBits[i]) {
         // The search key diverges inside the compressed prefix; this branch is untouched.
         return branchNode;
       }
@@ -79,17 +77,16 @@ public class RemoveVisitor implements PathNodeVisitor {
     final int split = depth + prefixLen;
     // Remove from the selected child, then let BranchNode decide whether the branch can be
     // collapsed to preserve the canonical "no branch with a single non-empty child" form.
-    if (bits[split] == 0) {
-      final TrieNode updatedChild = branchNode.leftChild().accept(this, key, keyLen, split + 1);
+    if (key.bitAt(split) == 0) {
+      final TrieNode updatedChild = branchNode.leftChild().accept(this, key, split + 1);
       return branchNode.replaceChild(false, updatedChild, allowFlatten);
     }
-    final TrieNode updatedChild = branchNode.rightChild().accept(this, key, keyLen, split + 1);
+    final TrieNode updatedChild = branchNode.rightChild().accept(this, key, split + 1);
     return branchNode.replaceChild(true, updatedChild, allowFlatten);
   }
 
   @Override
-  public TrieNode visit(
-      final StoredTrieNode storedNode, final byte[] key, final int keyLen, final int depth) {
-    return storedNode.load().accept(this, key, keyLen, depth);
+  public TrieNode visit(final StoredTrieNode storedNode, final TrieKey key, final int depth) {
+    return storedNode.load().accept(this, key, depth);
   }
 }

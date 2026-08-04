@@ -18,7 +18,6 @@ package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.BranchNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.EmptyTrieNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.LeafNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.StoredTrieNode;
 
 import org.apache.tuweni.bytes.Bytes;
 
@@ -38,7 +37,4 @@ public interface LocationNodeVisitor {
 
   /** Visits a branch node at {@code location}. */
   void visit(Bytes location, BranchNode branchNode);
-
-  /** Visits a stored node proxy at {@code location}. */
-  void visit(Bytes location, StoredTrieNode storedNode);
 }

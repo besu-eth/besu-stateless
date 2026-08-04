@@ -1,21 +1,23 @@
 # Security Policy
 
-## Reporting a vulnerability
+## Reporting a Security Bug
 
-If you believe you have found a security issue in Besu Stateless or related Besu components, please report it responsibly. We take security reports seriously and will investigate confirmed issues, patch within a reasonable timeframe, and publish an advisory crediting the reporter where appropriate.
+If you think you have discovered a security issue in any of the Linux Foundation Decentralized Trust
+(LF Decentralized Trust) projects, we'd love to hear from you. We will take all security bugs
+seriously and if confirmed upon investigation we will patch it within a reasonable amount of time and
+release a public security bulletin discussing the impact and credit the discoverer.
 
-### Preferred contacts
+Besu accepts security bugs at two email addresses:
 
-| Channel | Use when |
-|---------|----------|
-| [security-besu@lists.hyperledger.org](mailto:security-besu@lists.hyperledger.org) | Besu-specific issues; limited to Besu maintainers and Hyperledger staff |
-| [security@hyperledger.org](mailto:security@hyperledger.org) | Cross-project or highly sensitive issues; visible to Hyperledger security team |
-| [security@consensys.io](mailto:security@consensys.io) | Consensys-maintained Besu deployments and coordinated disclosure |
+- [security-besu@lists.hyperledger.org](mailto:security-besu@lists.hyperledger.org) is limited to a
+  subset of Besu maintainers and LF Decentralized Trust staff. For highly sensitive bugs, this is the preferred
+  address.
+- [security@hyperledger.org](mailto:security@hyperledger.org) is limited to a subset of maintainers
+  and staff of all LF Decentralized Trust projects, and may be viewed by maintainers outside of Besu.
 
-Include a description of the flaw, affected versions, reproduction steps, and any known active exploitation.
+When sending information to either of these emails, please include a description of the flaw and any
+related information (for example, reproduction steps, version, and known active use).
 
-### Process
-
-The Hyperledger Security Team documents defect handling on the [Defect Response wiki](https://wiki.hyperledger.org/display/SEC/Defect+Response).
-
-Please do **not** disclose security issues in public GitHub issues or pull requests before coordinated disclosure.
+The process by which the LF Decentralized Trust Security Team handles security bugs is documented further in
+our [Defect Response page](https://wiki.hyperledger.org/display/SEC/Defect+Response) on our
+[wiki](https://wiki.hyperledger.org).

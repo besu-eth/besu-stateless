@@ -18,11 +18,14 @@ package org.hyperledger.besu.ethereum.partitionedbinarytrie.codec;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.bytes.ByteTrieOps;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKey;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.NodeLoaderMock;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.NodeUpdaterMock;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.StoredTrieNodeFactory;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.LeafNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.TrieNode;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor.GetVisitor;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor.PutVisitor;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -50,7 +53,7 @@ class TrieNodeCodecTest {
     final LeafNode leaf = new LeafNode(key, 4, value, false);
     leaf.commit(Bytes.EMPTY, updater);
     final TrieNode decoded = factory.retrieve(Bytes.EMPTY, Bytes32.wrap(leaf.merkleHashBytes()));
-    assertThat(decoded.get(key, 4, 0)).contains(value);
+    assertThat(decoded.accept(new GetVisitor(), TrieKey.of(key, 4), 0).leafValue()).contains(value);
     assertThat(decoded.merkleHashBytes()).isEqualTo(ByteTrieOps.leafHash(key, 4, value));
   }
 
@@ -61,7 +64,8 @@ class TrieNodeCodecTest {
     final byte[] valueA = Bytes32.repeat((byte) 0x01).toArrayUnsafe();
     final byte[] valueB = Bytes32.repeat((byte) 0x02).toArrayUnsafe();
 
-    final TrieNode root = new LeafNode(keyA, 2, valueA, false).put(keyB, 2, valueB, 0);
+    final TrieNode root =
+        new LeafNode(keyA, 2, valueA, false).accept(new PutVisitor(valueB), TrieKey.of(keyB, 2), 0);
     final byte[] rootHash = root.merkleHashBytes();
     final Bytes encoded = root.encode();
 
@@ -71,8 +75,10 @@ class TrieNodeCodecTest {
     final StoredTrieNodeFactory factory = new StoredTrieNodeFactory(new NodeLoaderMock(updater));
     root.commit(Bytes.EMPTY, updater);
     final TrieNode decoded = factory.retrieve(Bytes.EMPTY, Bytes32.wrap(rootHash));
-    assertThat(decoded.get(keyA, 2, 0)).contains(valueA);
-    assertThat(decoded.get(keyB, 2, 0)).contains(valueB);
+    assertThat(decoded.accept(new GetVisitor(), TrieKey.of(keyA, 2), 0).leafValue())
+        .contains(valueA);
+    assertThat(decoded.accept(new GetVisitor(), TrieKey.of(keyB, 2), 0).leafValue())
+        .contains(valueB);
     assertThat(decoded.merkleHashBytes()).isEqualTo(rootHash);
   }
 

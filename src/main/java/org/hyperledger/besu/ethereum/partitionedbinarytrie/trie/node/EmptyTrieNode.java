@@ -15,6 +15,7 @@
  */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node;
 
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKey;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor.LocationNodeVisitor;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor.PathNodeVisitor;
 
@@ -44,9 +45,8 @@ public final class EmptyTrieNode extends TrieNode {
   }
 
   @Override
-  public TrieNode accept(
-      final PathNodeVisitor visitor, final byte[] key, final int keyLen, final int depth) {
-    return visitor.visit(this, key, keyLen, depth);
+  public TrieNode accept(final PathNodeVisitor visitor, final TrieKey key, final int depth) {
+    return visitor.visit(this, key, depth);
   }
 
   @Override

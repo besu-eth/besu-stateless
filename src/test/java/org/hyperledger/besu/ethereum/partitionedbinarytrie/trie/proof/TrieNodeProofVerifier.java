@@ -17,9 +17,11 @@ package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.proof;
 
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.TrieNodeCodec;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieConstants;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKey;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.BranchNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.LeafNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.TrieNode;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor.GetVisitor;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor.LocationNodeVisitor;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor.PathNodeVisitor;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor.ProofVisitor;
@@ -84,7 +86,7 @@ public final class TrieNodeProofVerifier {
     }
     final Map<Bytes32, Bytes> nodesByHash = indexProofNodes(proofNodes);
     final TrieNode root = decodeFromProof(Bytes.EMPTY, nodesByHash.get(expectedRoot), nodesByHash);
-    return Optional.of(root.get(key, keyLen, 0));
+    return Optional.of(root.accept(new GetVisitor(), TrieKey.of(key, keyLen), 0).leafValue());
   }
 
   private static Map<Bytes32, Bytes> indexProofNodes(final List<Bytes> proofNodes) {
@@ -185,8 +187,7 @@ public final class TrieNodeProofVerifier {
     }
 
     @Override
-    public TrieNode accept(
-        final PathNodeVisitor visitor, final byte[] key, final int keyLen, final int depth) {
+    public TrieNode accept(final PathNodeVisitor visitor, final TrieKey key, final int depth) {
       throw new UnsupportedOperationException("Proof reference node cannot be traversed");
     }
 

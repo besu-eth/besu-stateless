@@ -22,6 +22,8 @@ import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.StoredTrieN
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.TrieNode;
 import org.hyperledger.besu.ethereum.trie.NodeLoader;
 
+import java.util.Arrays;
+
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
@@ -57,22 +59,32 @@ public final class StoredTrieNodeFactory {
     if (encoded.isEmpty()) {
       return TrieNode.empty();
     }
-    final int tag = encoded.get(0) & 0xFF;
+    final byte[] raw = encoded.toArrayUnsafe();
+    final int tag = raw[0] & 0xFF;
     if (tag == TrieNodeCodec.LEAF_TAG) {
-      final int keyLen = encoded.getInt(1);
-      final byte[] key = encoded.slice(5, keyLen).toArrayUnsafe();
-      final byte[] value = encoded.slice(5 + keyLen, 32).toArrayUnsafe();
+      // Wire layout: [tag | keyLen (4) | key (keyLen) | value (32)]
+      final int keyLen = readInt(raw, 1);
+      final byte[] key = Arrays.copyOfRange(raw, 5, 5 + keyLen);
+      final byte[] value = Arrays.copyOfRange(raw, 5 + keyLen, 5 + keyLen + 32);
       return new LeafNode(key, keyLen, value, true);
     }
     if (tag == TrieNodeCodec.BRANCH_TAG) {
-      final int prefixLen = encoded.getInt(1);
+      // Wire layout (inverse of TrieNodeCodec.encodeBranch):
+      // [tag | prefixLen (4) | packed prefix | leftHash (32) | rightHash (32)]
+      //  0       1..4           5..cursor-1      cursor       cursor+32
+      // prefixLen: prefix length in bits (shared path before the left/right split).
+      final int prefixLen = readInt(raw, 1);
+      // packedLen: on-disk size of those bits (ceil(prefixLen / 8) bytes, MSB-first).
       final int packedLen = (prefixLen + 7) / 8;
+      final byte[] prefixBits = TrieNodeCodec.unpackPrefix(raw, 5, prefixLen);
+
       final int cursor = 5 + packedLen;
-      final byte[] prefixBits = TrieNodeCodec.unpackPrefix(encoded.slice(5, packedLen), prefixLen);
-      final Bytes32 leftHash = Bytes32.wrap(encoded.slice(cursor, 32).toArrayUnsafe());
-      final Bytes32 rightHash = Bytes32.wrap(encoded.slice(cursor + 32, 32).toArrayUnsafe());
+      final Bytes32 leftHash = Bytes32.wrap(Arrays.copyOfRange(raw, cursor, cursor + 32));
+      final Bytes32 rightHash = Bytes32.wrap(Arrays.copyOfRange(raw, cursor + 32, cursor + 64));
+      // Child paths: current location + prefix bits + split bit (0=left, 1=right).
       final Bytes leftLoc = TrieNodeCodec.childLocation(location, prefixBits, prefixLen, 0);
       final Bytes rightLoc = TrieNodeCodec.childLocation(location, prefixBits, prefixLen, 1);
+      // StoredTrieNode stubs: hash + location only; child body loaded on demand.
       return new BranchNode(
           prefixBits,
           prefixLen,
@@ -81,5 +93,12 @@ public final class StoredTrieNodeFactory {
           true);
     }
     throw new IllegalArgumentException("Unknown node tag: " + tag);
+  }
+
+  private static int readInt(final byte[] raw, final int offset) {
+    return ((raw[offset] & 0xFF) << 24)
+        | ((raw[offset + 1] & 0xFF) << 16)
+        | ((raw[offset + 2] & 0xFF) << 8)
+        | (raw[offset + 3] & 0xFF);
   }
 }

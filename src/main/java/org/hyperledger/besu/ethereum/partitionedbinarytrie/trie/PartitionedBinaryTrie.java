@@ -18,6 +18,7 @@ package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieConstants;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKey;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.PartitionedBinaryTrieFactory;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.StoredTrieNodeFactory;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.TrieNode;
@@ -142,7 +143,8 @@ public class PartitionedBinaryTrie {
   public Optional<byte[]> get(final byte[] key, final int keyLen) {
     checkNotNull(key);
     validateKey(key, keyLen);
-    return root.accept(getGetVisitor(), key, keyLen, 0).leafValue();
+    final TrieKey trieKey = TrieKey.of(key, keyLen);
+    return root.accept(getGetVisitor(), trieKey, 0).leafValue();
   }
 
   /**
@@ -168,7 +170,7 @@ public class PartitionedBinaryTrie {
   public byte[] readState(final byte[] key, final int keyLen) {
     return get(key, keyLen)
         .map(value -> Arrays.copyOf(value, TrieConstants.VALUE_LENGTH))
-        .orElseGet(() -> Bytes32.ZERO.toArray());
+        .orElseGet(Bytes32.ZERO::toArray);
   }
 
   /**
@@ -205,7 +207,8 @@ public class PartitionedBinaryTrie {
     checkNotNull(key);
     validateKey(key, keyLen);
     final ProofVisitor proofVisitor = new ProofVisitor(root);
-    final Optional<byte[]> value = root.accept(proofVisitor, key, keyLen, 0).leafValue();
+    final TrieKey trieKey = TrieKey.of(key, keyLen);
+    final Optional<byte[]> value = root.accept(proofVisitor, trieKey, 0).leafValue();
     final List<Bytes> proof =
         proofVisitor.getProof().stream().map(node -> node.encode()).collect(Collectors.toList());
     return new Proof<>(value, proof);
@@ -238,7 +241,8 @@ public class PartitionedBinaryTrie {
     checkNotNull(value);
     validateKey(key, keyLen);
     validateValue(value);
-    root = root.accept(getPutVisitor(value), key, keyLen, 0);
+    final TrieKey trieKey = TrieKey.of(key, keyLen);
+    root = root.accept(getPutVisitor(value), trieKey, 0);
   }
 
   /**
@@ -341,7 +345,8 @@ public class PartitionedBinaryTrie {
   public void remove(final byte[] key, final int keyLen) {
     checkNotNull(key);
     validateKey(key, keyLen);
-    root = root.accept(getRemoveVisitor(), key, keyLen, 0);
+    final TrieKey trieKey = TrieKey.of(key, keyLen);
+    root = root.accept(getRemoveVisitor(), trieKey, 0);
   }
 
   /**

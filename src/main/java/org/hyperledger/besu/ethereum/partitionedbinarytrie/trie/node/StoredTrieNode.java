@@ -15,6 +15,7 @@
  */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node;
 
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKey;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.StoredTrieNodeFactory;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor.LocationNodeVisitor;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor.PathNodeVisitor;
@@ -22,7 +23,13 @@ import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor.PathNode
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
-/** Lazy-loading trie node proxy backed by a persisted hash and location. */
+/**
+ * Lazy-loading trie node proxy backed by a persisted hash and location.
+ *
+ * <p>Always clean: mutations unwrap via {@link #load()} and return in-memory nodes. Commit never
+ * visits this type directly; {@link #accept(Bytes, LocationNodeVisitor)} delegates to the loaded
+ * node.
+ */
 public final class StoredTrieNode extends TrieNode {
 
   private final StoredTrieNodeFactory factory;
@@ -50,24 +57,19 @@ public final class StoredTrieNode extends TrieNode {
     return location;
   }
 
-  /** Reloads the in-memory graph from the factory after commit. */
-  public void reloadAfterCommit() {
-    loaded = factory.retrieve(location, hash);
-    markClean();
+  @Override
+  public boolean isClean() {
+    return true;
   }
 
   @Override
-  public TrieNode put(final byte[] key, final int keyLen, final byte[] value, final int depth) {
-    final TrieNode updated = load().put(key, keyLen, value, depth);
-    markDirty();
-    return updated;
+  public void markDirty() {
+    throw new IllegalStateException(
+        "A stored node cannot ever be dirty since it's loaded from storage");
   }
 
   @Override
   public byte[] merkleHashBytes() {
-    if (!clean && loaded != null) {
-      return loaded.merkleHashBytes();
-    }
     return hash.toArrayUnsafe();
   }
 
@@ -77,9 +79,8 @@ public final class StoredTrieNode extends TrieNode {
   }
 
   @Override
-  public TrieNode accept(
-      final PathNodeVisitor visitor, final byte[] key, final int keyLen, final int depth) {
-    return load().accept(visitor, key, keyLen, depth);
+  public TrieNode accept(final PathNodeVisitor visitor, final TrieKey key, final int depth) {
+    return load().accept(visitor, key, depth);
   }
 
   @Override

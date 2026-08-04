@@ -15,6 +15,7 @@
  */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor;
 
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKey;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.BranchNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.LeafNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.TrieNode;
@@ -37,17 +38,15 @@ public class ProofVisitor extends GetVisitor {
   }
 
   @Override
-  public TrieNode visit(
-      final LeafNode leafNode, final byte[] key, final int keyLen, final int depth) {
+  public TrieNode visit(final LeafNode leafNode, final TrieKey key, final int depth) {
     maybeTrackNode(leafNode);
-    return super.visit(leafNode, key, keyLen, depth);
+    return super.visit(leafNode, key, depth);
   }
 
   @Override
-  public TrieNode visit(
-      final BranchNode branchNode, final byte[] key, final int keyLen, final int depth) {
+  public TrieNode visit(final BranchNode branchNode, final TrieKey key, final int depth) {
     maybeTrackNode(branchNode);
-    return super.visit(branchNode, key, keyLen, depth);
+    return super.visit(branchNode, key, depth);
   }
 
   public List<TrieNode> getProof() {

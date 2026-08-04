@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node;
 
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.TrieNodeCodec;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.bytes.ByteTrieOps;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKey;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor.LocationNodeVisitor;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor.PathNodeVisitor;
 
@@ -59,9 +60,8 @@ public final class LeafNode extends TrieNode {
   }
 
   @Override
-  public TrieNode accept(
-      final PathNodeVisitor visitor, final byte[] lookupKey, final int lookupLen, final int depth) {
-    return visitor.visit(this, lookupKey, lookupLen, depth);
+  public TrieNode accept(final PathNodeVisitor visitor, final TrieKey lookupKey, final int depth) {
+    return visitor.visit(this, lookupKey, depth);
   }
 
   @Override

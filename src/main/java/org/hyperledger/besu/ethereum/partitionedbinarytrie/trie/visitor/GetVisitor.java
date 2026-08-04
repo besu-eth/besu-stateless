@@ -16,6 +16,7 @@
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor;
 
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.bytes.ByteTrieOps;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKey;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.BranchNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.EmptyTrieNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.LeafNode;
@@ -33,16 +34,15 @@ public class GetVisitor implements PathNodeVisitor {
   private static final EmptyTrieNode NOT_FOUND = EmptyTrieNode.instance();
 
   @Override
-  public TrieNode visit(
-      final EmptyTrieNode emptyNode, final byte[] key, final int keyLen, final int depth) {
+  public TrieNode visit(final EmptyTrieNode emptyNode, final TrieKey key, final int depth) {
     // Reaching an empty subtree means the searched key has no leaf in this trie.
     return NOT_FOUND;
   }
 
   @Override
-  public TrieNode visit(
-      final LeafNode leafNode, final byte[] key, final int keyLen, final int depth) {
-    if (ByteTrieOps.keysEqual(leafNode.keyBytes(), leafNode.keyLength(), key, keyLen)) {
+  public TrieNode visit(final LeafNode leafNode, final TrieKey key, final int depth) {
+    if (ByteTrieOps.keysEqual(
+        leafNode.keyBytes(), leafNode.keyLength(), key.bytes(), key.length())) {
       return leafNode;
     }
     // A leaf is terminal. If its full key differs, there is no alternate path to continue.
@@ -50,17 +50,15 @@ public class GetVisitor implements PathNodeVisitor {
   }
 
   @Override
-  public TrieNode visit(
-      final BranchNode branchNode, final byte[] key, final int keyLen, final int depth) {
-    final int keyBits = keyLen * 8;
+  public TrieNode visit(final BranchNode branchNode, final TrieKey key, final int depth) {
+    final int keyBits = key.bitCount();
     if (depth >= keyBits) {
       // The lookup key ended before this branch could select a child.
       return NOT_FOUND;
     }
-    final byte[] bits = ByteTrieOps.expandKeyBits(key, keyLen);
     final int prefixLen = branchNode.prefixLength();
     for (int i = 0; i < prefixLen; i++) {
-      if (depth + i >= keyBits || bits[depth + i] != branchNode.prefixBits()[i]) {
+      if (depth + i >= keyBits || key.bitAt(depth + i) != branchNode.prefixBits()[i]) {
         // Compressed branch prefixes must match exactly; a mismatch proves absence.
         return NOT_FOUND;
       }
@@ -71,15 +69,14 @@ public class GetVisitor implements PathNodeVisitor {
       return NOT_FOUND;
     }
     // After the compressed prefix, the next key bit chooses the only possible child.
-    if (bits[split] == 0) {
-      return branchNode.leftChild().accept(this, key, keyLen, split + 1);
+    if (key.bitAt(split) == 0) {
+      return branchNode.leftChild().accept(this, key, split + 1);
     }
-    return branchNode.rightChild().accept(this, key, keyLen, split + 1);
+    return branchNode.rightChild().accept(this, key, split + 1);
   }
 
   @Override
-  public TrieNode visit(
-      final StoredTrieNode storedNode, final byte[] key, final int keyLen, final int depth) {
-    return storedNode.load().accept(this, key, keyLen, depth);
+  public TrieNode visit(final StoredTrieNode storedNode, final TrieKey key, final int depth) {
+    return storedNode.load().accept(this, key, depth);
   }
 }

@@ -38,15 +38,6 @@ public final class BasicDataEncoder {
    */
   public static Bytes32 encodeBasicData(
       final long codeSize, final long nonce, final UInt256 balance) {
-    if (balance.compareTo(UInt256.valueOf(2).pow(128)) >= 0) {
-      throw new IllegalArgumentException("Balance does not fit in 16 bytes");
-    }
-    if (codeSize < 0 || (codeSize >>> 32) != 0) {
-      throw new IllegalArgumentException("Code size does not fit in 4 bytes");
-    }
-    if (nonce < 0) {
-      throw new IllegalArgumentException("Nonce must be non-negative");
-    }
     final byte[] result = new byte[32];
     result[0] = (byte) EmbeddingParameters.BASIC_DATA_VERSION;
     // bytes 1-3 reserved

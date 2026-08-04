@@ -15,6 +15,7 @@
  */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor;
 
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKey;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.BranchNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.EmptyTrieNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.LeafNode;
@@ -24,11 +25,11 @@ import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.TrieNode;
 /** Path-keyed visitor for get, put, and remove on {@link TrieNode} graphs. */
 public interface PathNodeVisitor {
 
-  TrieNode visit(EmptyTrieNode emptyNode, byte[] key, int keyLen, int depth);
+  TrieNode visit(EmptyTrieNode emptyNode, TrieKey key, int depth);
 
-  TrieNode visit(LeafNode leafNode, byte[] key, int keyLen, int depth);
+  TrieNode visit(LeafNode leafNode, TrieKey key, int depth);
 
-  TrieNode visit(BranchNode branchNode, byte[] key, int keyLen, int depth);
+  TrieNode visit(BranchNode branchNode, TrieKey key, int depth);
 
-  TrieNode visit(StoredTrieNode storedNode, byte[] key, int keyLen, int depth);
+  TrieNode visit(StoredTrieNode storedNode, TrieKey key, int depth);
 }

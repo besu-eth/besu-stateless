@@ -15,12 +15,10 @@
  */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node;
 
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKey;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor.CommitVisitor;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor.GetVisitor;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor.LocationNodeVisitor;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor.PathNodeVisitor;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor.PutVisitor;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor.RemoveVisitor;
 import org.hyperledger.besu.ethereum.trie.NodeUpdater;
 
 import java.util.Optional;
@@ -33,14 +31,12 @@ import org.apache.tuweni.bytes.Bytes;
  * <p>Concrete implementations are {@link LeafNode}, {@link BranchNode}, and {@link StoredTrieNode}.
  * The empty trie is represented by a singleton returned from {@link #empty()}.
  *
- * <p>Get, put, and commit delegate to {@link PathNodeVisitor} and {@link LocationNodeVisitor}
- * implementations via double dispatch ({@link #accept(PathNodeVisitor, byte[], int, int)} and
- * {@link #accept(Bytes, LocationNodeVisitor)}).
+ * <p>Traversal and mutation use {@link PathNodeVisitor} and {@link LocationNodeVisitor} via double
+ * dispatch ({@link #accept(PathNodeVisitor, TrieKey, int)} and {@link #accept(Bytes,
+ * LocationNodeVisitor)}). High-level get/put/remove live on {@link
+ * org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.PartitionedBinaryTrie}.
  */
 public abstract class TrieNode {
-
-  private static final GetVisitor GET_VISITOR = new GetVisitor();
-  private static final RemoveVisitor REMOVE_VISITOR = new RemoveVisitor();
 
   protected boolean clean;
 
@@ -73,18 +69,6 @@ public abstract class TrieNode {
     return Optional.empty();
   }
 
-  public Optional<byte[]> get(final byte[] key, final int keyLen, final int depth) {
-    return accept(GET_VISITOR, key, keyLen, depth).leafValue();
-  }
-
-  public TrieNode put(final byte[] key, final int keyLen, final byte[] value, final int depth) {
-    return accept(new PutVisitor(value), key, keyLen, depth);
-  }
-
-  public TrieNode remove(final byte[] key, final int keyLen, final int depth) {
-    return accept(REMOVE_VISITOR, key, keyLen, depth);
-  }
-
   public abstract byte[] merkleHashBytes();
 
   public void commit(final Bytes location, final NodeUpdater updater) {
@@ -103,15 +87,14 @@ public abstract class TrieNode {
   }
 
   /**
-   * Accepts a path-keyed visitor starting at {@code depth} into the expanded key.
+   * Accepts a path-keyed visitor starting at {@code depth} into the lookup key.
    *
    * @param visitor path visitor (get, put, remove, …)
-   * @param key key bytes
-   * @param keyLen valid key length
+   * @param key lookup key (bytes and expanded path bits)
    * @param depth current bit depth
    * @return updated subtree root
    */
-  public abstract TrieNode accept(PathNodeVisitor visitor, byte[] key, int keyLen, int depth);
+  public abstract TrieNode accept(PathNodeVisitor visitor, TrieKey key, int depth);
 
   /**
    * Accepts a storage-location-keyed visitor.

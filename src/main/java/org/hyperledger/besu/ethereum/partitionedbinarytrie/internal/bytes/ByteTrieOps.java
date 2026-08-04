@@ -18,6 +18,8 @@ package org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.bytes;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.hash.Blake3Hasher;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieConstants;
 
+import java.util.Arrays;
+
 /**
  * Hot-path trie operations on primitive byte arrays.
  *
@@ -56,7 +58,7 @@ public final class ByteTrieOps {
       bits[base + 7] = (byte) (value & 1);
     }
     // Shorter keys reuse the thread-local buffer; clear stale bits from prior longer keys.
-    java.util.Arrays.fill(bits, bitCount, bits.length, (byte) 0);
+    Arrays.fill(bits, bitCount, bits.length, (byte) 0);
     return bits;
   }
 

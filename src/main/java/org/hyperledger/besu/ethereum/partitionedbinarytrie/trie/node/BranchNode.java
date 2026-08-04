@@ -17,20 +17,53 @@ package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node;
 
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.TrieNodeCodec;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.bytes.ByteTrieOps;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKey;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor.LocationNodeVisitor;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor.PathNodeVisitor;
 
 import org.apache.tuweni.bytes.Bytes;
 
-/** In-memory branch node with a compressed bit prefix and left/right children. */
+/**
+ * Internal branch node in the partitioned binary trie.
+ *
+ * <p>Structure:
+ *
+ * <pre>
+ *   prefixBits[0 .. prefixLen)   shared key bits before the split
+ *              |
+ *              +-- bit 0 --> left child
+ *              +-- bit 1 --> right child
+ * </pre>
+ *
+ * <p>{@code prefixBits} is expanded in memory ({@code 0} or {@code 1} per element). Callers pass a
+ * {@link TrieKey} whose {@link TrieKey#pathBits()} are matched starting at {@code depth}, then
+ * descend using {@link TrieKey#bitAt(int)} at {@code depth + prefixLen}.
+ *
+ * <p>On disk ({@link TrieNodeCodec#encodeBranch}), only {@code prefixLen} (in bits) and the packed
+ * prefix are stored with left/right child hashes. Children may be {@link StoredTrieNode} stubs
+ * loaded lazily from storage.
+ *
+ * <p>Merkle hash: BLAKE3 branch tag over the packed prefix and both child hashes (EIP-8297).
+ */
 public final class BranchNode extends TrieNode {
 
+  /** Expanded prefix bits ({@code 0} or {@code 1} per element). */
   private final byte[] prefixBits;
+
+  /** Number of prefix bits (not bytes); see {@link #prefixLength()}. */
   private final int prefixLen;
+
   private TrieNode left;
   private TrieNode right;
   private byte[] hash;
 
+  /**
+   * @param prefixBits expanded prefix bits ({@code 0} or {@code 1} per element)
+   * @param prefixLen number of prefix bits to use from {@code prefixBits}
+   * @param left child reached when the split bit is {@code 0}
+   * @param right child reached when the split bit is {@code 1}
+   * @param clean {@code true} if loaded from storage and not yet modified
+   */
   public BranchNode(
       final byte[] prefixBits,
       final int prefixLen,
@@ -105,9 +138,8 @@ public final class BranchNode extends TrieNode {
   }
 
   @Override
-  public TrieNode accept(
-      final PathNodeVisitor visitor, final byte[] key, final int keyLen, final int depth) {
-    return visitor.visit(this, key, keyLen, depth);
+  public TrieNode accept(final PathNodeVisitor visitor, final TrieKey key, final int depth) {
+    return visitor.visit(this, key, depth);
   }
 
   @Override

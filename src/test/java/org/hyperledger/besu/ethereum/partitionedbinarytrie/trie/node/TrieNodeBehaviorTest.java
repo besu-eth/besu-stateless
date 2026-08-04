@@ -16,6 +16,10 @@
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.TrieNodeTestOps.get;
+import static org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.TrieNodeTestOps.put;
+import static org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.TrieNodeTestOps.remove;
 
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.NodeLoaderMock;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.NodeUpdaterMock;
@@ -52,21 +56,21 @@ class TrieNodeBehaviorTest {
     @Test
     void getAlwaysAbsent() {
       final Bytes key = Bytes.fromHexString("0x01");
-      assertThat(TrieNode.empty().get(key.toArrayUnsafe(), key.size(), 0)).isEmpty();
+      assertThat(get(TrieNode.empty(), key.toArrayUnsafe(), key.size())).isEmpty();
     }
 
     @Test
     void putCreatesLeaf() {
       final Bytes key = Bytes.fromHexString("0x01");
       final byte[] value = Bytes32.repeat((byte) 1).toArrayUnsafe();
-      final TrieNode leaf = TrieNode.empty().put(key.toArrayUnsafe(), key.size(), value, 0);
+      final TrieNode leaf = put(TrieNode.empty(), key.toArrayUnsafe(), key.size(), value);
       assertThat(leaf).isInstanceOf(LeafNode.class);
-      assertThat(leaf.get(key.toArrayUnsafe(), key.size(), 0)).contains(value);
+      assertThat(get(leaf, key.toArrayUnsafe(), key.size())).contains(value);
     }
 
     @Test
     void removeIsNoOp() {
-      assertThat(TrieNode.empty().remove(new byte[] {1}, 1, 0)).isSameAs(TrieNode.empty());
+      assertThat(remove(TrieNode.empty(), new byte[] {1}, 1)).isSameAs(TrieNode.empty());
     }
 
     @Test
@@ -84,7 +88,7 @@ class TrieNodeBehaviorTest {
       final Bytes key = Bytes.fromHexString("0xbeef");
       final byte[] value = Bytes32.repeat((byte) 0x55).toArrayUnsafe();
       final TrieNode leaf = new LeafNode(key.toArrayUnsafe(), key.size(), value, false);
-      assertThat(leaf.remove(key.toArrayUnsafe(), key.size(), 0)).isSameAs(TrieNode.empty());
+      assertThat(remove(leaf, key.toArrayUnsafe(), key.size())).isSameAs(TrieNode.empty());
     }
 
     @Test
@@ -93,7 +97,7 @@ class TrieNodeBehaviorTest {
       final Bytes other = Bytes.fromHexString("0xcafe");
       final byte[] value = Bytes32.repeat((byte) 1).toArrayUnsafe();
       final TrieNode leaf = new LeafNode(key.toArrayUnsafe(), key.size(), value, false);
-      assertThat(leaf.remove(other.toArrayUnsafe(), other.size(), 0)).isSameAs(leaf);
+      assertThat(remove(leaf, other.toArrayUnsafe(), other.size())).isSameAs(leaf);
     }
 
     @Test
@@ -102,8 +106,8 @@ class TrieNodeBehaviorTest {
       final byte[] v1 = Bytes32.repeat((byte) 1).toArrayUnsafe();
       final byte[] v2 = Bytes32.repeat((byte) 2).toArrayUnsafe();
       final TrieNode leaf = new LeafNode(key.toArrayUnsafe(), key.size(), v1, false);
-      final TrieNode updated = leaf.put(key.toArrayUnsafe(), key.size(), v2, 0);
-      assertThat(updated.get(key.toArrayUnsafe(), key.size(), 0)).contains(v2);
+      final TrieNode updated = put(leaf, key.toArrayUnsafe(), key.size(), v2);
+      assertThat(get(updated, key.toArrayUnsafe(), key.size())).contains(v2);
     }
   }
 
@@ -119,14 +123,17 @@ class TrieNodeBehaviorTest {
       final byte[] valueB = Bytes32.repeat((byte) 0x02).toArrayUnsafe();
 
       TrieNode root =
-          new LeafNode(keyA.toArrayUnsafe(), keyA.size(), valueA, false)
-              .put(keyB.toArrayUnsafe(), keyB.size(), valueB, 0);
+          put(
+              new LeafNode(keyA.toArrayUnsafe(), keyA.size(), valueA, false),
+              keyB.toArrayUnsafe(),
+              keyB.size(),
+              valueB);
       assertThat(root).isInstanceOf(BranchNode.class);
 
-      root = root.remove(keyB.toArrayUnsafe(), keyB.size(), 0);
+      root = remove(root, keyB.toArrayUnsafe(), keyB.size());
       assertThat(root).isInstanceOf(LeafNode.class);
-      assertThat(root.get(keyA.toArrayUnsafe(), keyA.size(), 0)).contains(valueA);
-      assertThat(root.get(keyB.toArrayUnsafe(), keyB.size(), 0)).isEmpty();
+      assertThat(get(root, keyA.toArrayUnsafe(), keyA.size())).contains(valueA);
+      assertThat(get(root, keyB.toArrayUnsafe(), keyB.size())).isEmpty();
     }
 
     @Test
@@ -137,8 +144,11 @@ class TrieNodeBehaviorTest {
       final byte[] valueB = Bytes32.repeat((byte) 0xBB).toArrayUnsafe();
 
       TrieNode root =
-          new LeafNode(keyA.toArrayUnsafe(), keyA.size(), valueA, false)
-              .put(keyB.toArrayUnsafe(), keyB.size(), valueB, 0);
+          put(
+              new LeafNode(keyA.toArrayUnsafe(), keyA.size(), valueA, false),
+              keyB.toArrayUnsafe(),
+              keyB.size(),
+              valueB);
       root.commit(Bytes.EMPTY, updater);
       assertThat(updater.storage).isNotEmpty();
       assertThat(root.isClean()).isTrue();
@@ -160,8 +170,17 @@ class TrieNodeBehaviorTest {
       final Bytes32 hash = Bytes32.wrap(leaf.merkleHashBytes());
 
       final StoredTrieNode proxy = new StoredTrieNode(factory, Bytes.EMPTY, hash);
-      assertThat(proxy.get(key.toArrayUnsafe(), key.size(), 0)).contains(value);
+      assertThat(get(proxy, key.toArrayUnsafe(), key.size())).contains(value);
       assertThat(proxy.isClean()).isTrue();
+    }
+
+    @Test
+    void markDirtyIsRejected() {
+      final StoredTrieNode proxy =
+          new StoredTrieNode(factory, Bytes.EMPTY, Bytes32.repeat((byte) 0x11));
+      assertThatThrownBy(proxy::markDirty)
+          .isInstanceOf(IllegalStateException.class)
+          .hasMessageContaining("cannot ever be dirty");
     }
 
     @Test

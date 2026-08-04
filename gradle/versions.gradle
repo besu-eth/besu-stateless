@@ -15,18 +15,25 @@
 
 dependencyManagement {
     dependencies {
-        dependency 'com.google.guava:guava:33.0.0-jre'
-        dependency 'org.assertj:assertj-core:3.25.1'
-        dependency 'org.bouncycastle:bcprov-jdk18on:1.81'
+        // Aligned with Besu platform/build.gradle
+        dependency 'com.google.guava:guava:33.5.0-jre'
+        dependency 'org.bouncycastle:bcprov-jdk18on:1.84'
 
-        dependencySet(group: 'org.hyperledger.besu.internal', version: '24.7.0') {
-            entry 'trie'
-        }
-
-        dependencySet(group: 'io.tmio', version: '2.4.2') {
+        dependencySet(group: 'io.consensys.tuweni', version: '2.7.2') {
             entry 'tuweni-bytes'
             entry 'tuweni-units'
         }
+
+        // Dev snapshot — not on besu-maven. From Besu at commit 4c6c3d0, publish trie + runtime deps:
+        // ./gradlew :crypto:algorithms:publishToMavenLocal :datatypes:publishToMavenLocal \
+        //   :ethereum:rlp:publishToMavenLocal :plugin-api:publishToMavenLocal \
+        //   :plugin-api:core:publishToMavenLocal :metrics:plugin-api:publishToMavenLocal \
+        //   :evm:publishToMavenLocal :util:publishToMavenLocal :ethereum:trie:publishToMavenLocal -x test
+        dependencySet(group: 'org.hyperledger.besu.internal', version: '26.8-develop-4c6c3d0') {
+            entry 'besu-ethereum-trie'
+        }
+
+        dependency 'org.assertj:assertj-core:3.25.1'
 
         dependencySet(group: 'com.google.errorprone', version: '2.36.0') {
             entry 'error_prone_annotation'
