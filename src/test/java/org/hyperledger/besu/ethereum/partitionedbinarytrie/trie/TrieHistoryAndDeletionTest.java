@@ -45,9 +45,8 @@ import org.junit.jupiter.api.Test;
  * Rollback and removal semantics for the partitioned binary trie.
  *
  * <p>Layer: trie storage and in-memory {@link PartitionedBinaryTrie}. The raw trie is non-sparse:
- * absent keys occupy no nodes. EIP-8297 state writes additionally map zero values to deletion.
- * Historical roots remain loadable after Besu-style rollback; root hashes are compared against
- * {@link BinaryTrie}.
+ * absent keys occupy no nodes. Callers map EIP-8297 zero values to {@code remove}. Historical roots
+ * remain loadable after Besu-style rollback; root hashes are compared against {@link BinaryTrie}.
  */
 class TrieHistoryAndDeletionTest {
 
@@ -63,7 +62,7 @@ class TrieHistoryAndDeletionTest {
     factory = new PartitionedBinaryTrieFactory(new NodeLoaderMock(nodeUpdater));
   }
 
-  /** Raw trie absence and EIP-8297 state write deletion semantics. */
+  /** Raw trie absence and removal semantics. */
   @Nested
   class RemoveSemantics {
 
@@ -98,7 +97,7 @@ class TrieHistoryAndDeletionTest {
     }
 
     @Test
-    void stateWriteZeroDeletesExistingLeaf() {
+    void removeDeletesExistingLeaf() {
       final Bytes key =
           Bytes.fromHexString(
               "0x070707070707070707070707070707070707070707070707070707070707070700");
@@ -106,30 +105,18 @@ class TrieHistoryAndDeletionTest {
       final PartitionedBinaryTrie trie = new PartitionedBinaryTrie();
       final BinaryTrie spec = new BinaryTrie();
 
-      trie.writeState(key, value);
-      spec.writeState(key, value);
+      trie.put(key, value);
+      spec.put(key, value);
       assertThat(trie.get(key.toArray(), key.size())).contains(value.toArray());
       assertThat(trie.readState(key)).isEqualTo(value);
       assertThat(trie.getRootHash()).isEqualTo(spec.root());
 
-      trie.writeState(key, Bytes32.ZERO);
-      spec.writeState(key, Bytes32.ZERO);
+      trie.remove(key);
+      spec.remove(key);
       assertThat(trie.get(key.toArray(), key.size())).isEmpty();
       assertThat(trie.readState(key)).isEqualTo(Bytes32.ZERO);
       assertThat(trie.getRootHash()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
       assertThat(trie.getRootHash()).isEqualTo(spec.root());
-    }
-
-    @Test
-    void stateWriteZeroToAbsentKeyIsNoOp() {
-      final Bytes key = Bytes.fromHexString("0xabcd");
-      final PartitionedBinaryTrie trie = new PartitionedBinaryTrie();
-
-      trie.writeState(key, Bytes32.ZERO);
-
-      assertThat(trie.get(key.toArray(), key.size())).isEmpty();
-      assertThat(trie.readState(key)).isEqualTo(Bytes32.ZERO);
-      assertThat(trie.getRootHash()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
     }
 
     @Test
@@ -138,7 +125,9 @@ class TrieHistoryAndDeletionTest {
       final PartitionedBinaryTrie trie = new PartitionedBinaryTrie();
       final Bytes32 rootBefore = trie.getRootHash();
 
-      trie.remove(key.toArray(), key.size());
+      trie.remove(key);
+      assertThat(trie.get(key.toArray(), key.size())).isEmpty();
+      assertThat(trie.readState(key)).isEqualTo(Bytes32.ZERO);
       assertThat(trie.getRootHash()).isEqualTo(rootBefore);
       assertThat(trie.getRootHash()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
     }

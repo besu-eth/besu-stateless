@@ -82,8 +82,7 @@ public final class MutableBinaryTrie {
   /**
    * Removes a key if present.
    *
-   * <p>Absent keys produce no trie nodes in the raw trie. EIP-8297 state writes additionally map
-   * {@link Bytes32#ZERO} values to deletion.
+   * <p>Absent keys produce no trie nodes in the raw trie.
    *
    * @param key key to remove
    */

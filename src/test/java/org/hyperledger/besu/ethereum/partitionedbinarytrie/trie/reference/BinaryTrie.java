@@ -80,6 +80,9 @@ public final class BinaryTrie {
   /**
    * Inserts or replaces a key-value pair.
    *
+   * <p>A zero value is stored as a leaf. Callers that map zero to absence must {@link #remove}
+   * instead.
+   *
    * @param key variable-length key (1–{@link TrieConstants#MAX_KEY_LENGTH} bytes)
    * @param value 32-byte value
    */
@@ -90,28 +93,7 @@ public final class BinaryTrie {
   }
 
   /**
-   * Applies an EIP-8297 state write.
-   *
-   * <p>Writing zero deletes the leaf instead of storing it.
-   *
-   * @param key variable-length key (1–{@link TrieConstants#MAX_KEY_LENGTH} bytes)
-   * @param value 32-byte state value
-   */
-  public void writeState(final Bytes key, final Bytes32 value) {
-    validateKey(key);
-    validateValue(value);
-    if (Bytes32.ZERO.equals(value)) {
-      remove(key);
-    } else {
-      put(key, value);
-    }
-  }
-
-  /**
    * Removes a key from the trie.
-   *
-   * <p>Raw trie absence means the key is not present in the trie. State-level writes use {@link
-   * #writeState(Bytes, Bytes32)} to map zero values to deletion.
    *
    * @param key key to remove
    */

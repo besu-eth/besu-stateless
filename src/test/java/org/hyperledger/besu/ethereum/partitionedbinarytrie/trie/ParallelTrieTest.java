@@ -101,7 +101,7 @@ class ParallelTrieTest {
   }
 
   @Test
-  void shouldRemoveKey() {
+  void shouldRemoveDeletesLeafAndStateReadReturnsZero() {
     final Bytes key = Bytes.fromHexString("0x01020304");
     final Bytes32 value = createValue(100);
 
@@ -109,29 +109,10 @@ class ParallelTrieTest {
     sequentialTrie.put(key, value);
     parallelTrie.commit(parallelUpdater);
     sequentialTrie.commit(sequentialUpdater);
+    assertThat(parallelTrie.get(key)).contains(value);
 
     parallelTrie.remove(key);
     sequentialTrie.remove(key);
-    parallelTrie.commit(parallelUpdater);
-    sequentialTrie.commit(sequentialUpdater);
-
-    assertThat(parallelTrie.get(key)).isEmpty();
-    assertThat(parallelTrie.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
-  }
-
-  @Test
-  void shouldApplyStateZeroWriteAsRemove() {
-    final Bytes key = Bytes.fromHexString("0x01020304");
-    final Bytes32 value = createValue(100);
-
-    parallelTrie.writeState(key, value);
-    sequentialTrie.writeState(key, value);
-    parallelTrie.commit(parallelUpdater);
-    sequentialTrie.commit(sequentialUpdater);
-    assertThat(parallelTrie.get(key)).contains(value);
-
-    parallelTrie.writeState(key, Bytes32.ZERO);
-    sequentialTrie.writeState(key, Bytes32.ZERO);
     parallelTrie.commit(parallelUpdater);
     sequentialTrie.commit(sequentialUpdater);
 

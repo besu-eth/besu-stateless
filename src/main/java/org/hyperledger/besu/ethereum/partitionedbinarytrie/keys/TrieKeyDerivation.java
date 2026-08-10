@@ -113,6 +113,19 @@ public final class TrieKeyDerivation {
   }
 
   /**
+   * Returns the tree key for an account's EIP-7702 delegation leaf.
+   *
+   * <p>Being delegated and holding contract code are mutually exclusive: an existing account holds
+   * exactly one of the code-hash and delegation leaves.
+   *
+   * @param address 32-byte account address
+   * @return delegation tree key
+   */
+  public static Bytes getTreeKeyForDelegation(final Bytes32 address) {
+    return getTreeKeyForHeader(address, EmbeddingParameters.DELEGATION_LEAF_KEY);
+  }
+
+  /**
    * Computes the storage zone tree position for a large storage index.
    *
    * @param address 32-byte account address
@@ -128,18 +141,15 @@ public final class TrieKeyDerivation {
   /**
    * Returns the tree key for a storage slot.
    *
-   * <p>Slots below {@link EmbeddingParameters#CODE_OFFSET} map into the account header stem; larger
-   * slots use the storage zone with stem grouping.
+   * <p>Slots below {@link EmbeddingParameters#HEADER_STORAGE_SLOTS} map into the account header
+   * stem; larger slots use the storage zone with stem grouping.
    *
    * @param address 32-byte account address
    * @param storageKey storage slot index
    * @return storage tree key (34 or 66 bytes depending on zone)
    */
   public static Bytes getTreeKeyForStorageSlot(final Bytes32 address, final UInt256 storageKey) {
-    if (storageKey.compareTo(
-            UInt256.valueOf(
-                EmbeddingParameters.CODE_OFFSET - EmbeddingParameters.HEADER_STORAGE_OFFSET))
-        < 0) {
+    if (storageKey.compareTo(UInt256.valueOf(EmbeddingParameters.HEADER_STORAGE_SLOTS)) < 0) {
       return getTreeKeyForHeader(
           address, EmbeddingParameters.HEADER_STORAGE_OFFSET + storageKey.intValue());
     }
@@ -159,25 +169,19 @@ public final class TrieKeyDerivation {
   /**
    * Returns the tree key for a contract code chunk.
    *
-   * <p>Early chunks live in the account header stem; overflow chunks use the code zone.
+   * <p>All chunks live in {@link EmbeddingParameters#CODE_ZONE}, content-addressed by {@code
+   * codeHash}.
    *
-   * @param address 32-byte account address
    * @param codeHash 32-byte code hash
    * @param chunkId zero-based chunk index
    * @return code chunk tree key
    */
-  public static Bytes getTreeKeyForCodeChunk(
-      final Bytes32 address, final Bytes32 codeHash, final int chunkId) {
+  public static Bytes getTreeKeyForCodeChunk(final Bytes32 codeHash, final int chunkId) {
     if (chunkId < 0) {
       throw new IllegalArgumentException("Chunk index must be non-negative");
     }
-    if (chunkId < EmbeddingParameters.STEM_SUBTREE_WIDTH - EmbeddingParameters.CODE_OFFSET) {
-      return getTreeKeyForHeader(address, EmbeddingParameters.CODE_OFFSET + chunkId);
-    }
-    final int overflow =
-        chunkId - (EmbeddingParameters.STEM_SUBTREE_WIDTH - EmbeddingParameters.CODE_OFFSET);
-    final int treeIndex = overflow / EmbeddingParameters.STEM_SUBTREE_WIDTH;
-    final int subIndex = overflow % EmbeddingParameters.STEM_SUBTREE_WIDTH;
+    final int treeIndex = chunkId / EmbeddingParameters.STEM_SUBTREE_WIDTH;
+    final int subIndex = chunkId % EmbeddingParameters.STEM_SUBTREE_WIDTH;
     final Bytes key =
         getTreeKey(
             EmbeddingParameters.CODE_ZONE,

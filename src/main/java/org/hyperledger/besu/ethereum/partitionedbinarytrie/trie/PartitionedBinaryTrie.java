@@ -229,8 +229,8 @@ public class PartitionedBinaryTrie {
   /**
    * Inserts or replaces a raw trie value.
    *
-   * <p>This is the generic trie operation: a zero value is stored as a leaf. Use {@link
-   * #writeState(byte[], int, byte[])} for EIP-8297 state semantics where zero means deletion.
+   * <p>A zero value is stored as a leaf. Callers that map zero to absence (EIP-8297 state layer)
+   * must {@link #remove(byte[], int)} instead.
    *
    * @param key byte buffer containing the trie key
    * @param keyLen number of key bytes to read from {@code key}
@@ -255,39 +255,6 @@ public class PartitionedBinaryTrie {
     checkNotNull(key);
     checkNotNull(value);
     put(key.toArray(), key.size(), value.toArray());
-  }
-
-  /**
-   * Applies an EIP-8297 state write.
-   *
-   * <p>Writing 32 zero bytes deletes the leaf instead of storing a zero-valued leaf.
-   *
-   * @param key trie key bytes
-   * @param keyLen valid key length
-   * @param value 32-byte state value
-   */
-  public void writeState(final byte[] key, final int keyLen, final byte[] value) {
-    checkNotNull(key);
-    checkNotNull(value);
-    validateKey(key, keyLen);
-    validateValue(value);
-    if (isZeroValue(value)) {
-      remove(key, keyLen);
-    } else {
-      put(key, keyLen, value);
-    }
-  }
-
-  /**
-   * Applies an EIP-8297 state write.
-   *
-   * @param key variable-length trie key
-   * @param value 32-byte state value
-   */
-  public void writeState(final Bytes key, final Bytes value) {
-    checkNotNull(key);
-    checkNotNull(value);
-    writeState(key.toArray(), key.size(), value.toArray());
   }
 
   /**
@@ -490,14 +457,5 @@ public class PartitionedBinaryTrie {
     if (value.length != TrieConstants.VALUE_LENGTH) {
       throw new IllegalArgumentException("Value must be 32 bytes");
     }
-  }
-
-  protected static boolean isZeroValue(final byte[] value) {
-    for (final byte b : value) {
-      if (b != 0) {
-        return false;
-      }
-    }
-    return true;
   }
 }

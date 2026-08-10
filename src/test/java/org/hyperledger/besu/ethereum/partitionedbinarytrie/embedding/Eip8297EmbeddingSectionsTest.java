@@ -19,8 +19,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.BasicDataEncoder;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.CodeChunkifier;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.DelegationEncoder;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieConstants;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKeyDerivation;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.params.EmbeddingParameters;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.PartitionedBinaryTrie;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.StoredPartitionedBinaryTrie;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.NodeLoaderMock;
@@ -100,6 +102,64 @@ class Eip8297EmbeddingSectionsTest {
 
   @ParameterizedTest
   @EnumSource(TrieKind.class)
+  void delegationPutGetCommitReload(final TrieKind kind) {
+    final Bytes key = TrieKeyDerivation.getTreeKeyForDelegation(ADDRESS_A);
+    final Bytes32 value =
+        DelegationEncoder.encodeDelegation(
+            Bytes.fromHexString("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
+
+    try (EmbeddingTrieSession session = kind.open()) {
+      session.put(key, value);
+      session.commitAndReload();
+      assertThat(session.get(key)).contains(value.toArray());
+      assertThat(key.size()).isEqualTo(34);
+      assertThat(session.rootHash()).isEqualTo(session.spec().root());
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(TrieKind.class)
+  void setAndClearDelegationSemantics(final TrieKind kind) {
+    final Bytes target = Bytes.fromHexString("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    final Bytes basicKey = TrieKeyDerivation.getTreeKeyForBasicData(ADDRESS_A);
+    final Bytes codeHashKey = TrieKeyDerivation.getTreeKeyForCodeHash(ADDRESS_A);
+    final Bytes delegationKey = TrieKeyDerivation.getTreeKeyForDelegation(ADDRESS_A);
+
+    try (EmbeddingTrieSession session = kind.open()) {
+      session.put(basicKey, BasicDataEncoder.encodeBasicData(0, 1L, UInt256.valueOf(10)));
+      session.put(codeHashKey, TrieKeyDerivation.EMPTY_CODE_HASH);
+
+      session.put(
+          basicKey,
+          BasicDataEncoder.encodeBasicData(
+              EmbeddingParameters.DELEGATION_CODE_SIZE, 1L, UInt256.valueOf(10)));
+      session.remove(codeHashKey);
+      session.put(delegationKey, DelegationEncoder.encodeDelegation(target));
+
+      assertThat(session.get(basicKey))
+          .contains(
+              BasicDataEncoder.encodeBasicData(
+                      EmbeddingParameters.DELEGATION_CODE_SIZE, 1L, UInt256.valueOf(10))
+                  .toArray());
+      assertThat(session.get(codeHashKey)).isEmpty();
+      assertThat(session.get(delegationKey))
+          .contains(DelegationEncoder.encodeDelegation(target).toArray());
+      assertThat(session.rootHash()).isEqualTo(session.spec().root());
+
+      session.put(basicKey, BasicDataEncoder.encodeBasicData(0, 1L, UInt256.valueOf(10)));
+      session.remove(delegationKey);
+      session.put(codeHashKey, TrieKeyDerivation.EMPTY_CODE_HASH);
+
+      assertThat(session.get(basicKey))
+          .contains(BasicDataEncoder.encodeBasicData(0, 1L, UInt256.valueOf(10)).toArray());
+      assertThat(session.get(delegationKey)).isEmpty();
+      assertThat(session.get(codeHashKey)).contains(TrieKeyDerivation.EMPTY_CODE_HASH.toArray());
+      assertThat(session.rootHash()).isEqualTo(session.spec().root());
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(TrieKind.class)
   void headerStorageSlotPutGetCommitReload(final TrieKind kind) {
     final Bytes key = TrieKeyDerivation.getTreeKeyForStorageSlot(ADDRESS_A, UInt256.valueOf(5));
     final Bytes32 value = Bytes32.repeat((byte) 0x05);
@@ -159,8 +219,8 @@ class Eip8297EmbeddingSectionsTest {
 
   @ParameterizedTest
   @EnumSource(TrieKind.class)
-  void headerCodeChunkPutGetCommitReload(final TrieKind kind) {
-    final Bytes key = TrieKeyDerivation.getTreeKeyForCodeChunk(ADDRESS_A, CODE_HASH, 5);
+  void codeChunkPutGetCommitReload(final TrieKind kind) {
+    final Bytes key = TrieKeyDerivation.getTreeKeyForCodeChunk(CODE_HASH, 5);
     final Bytes32 value = CodeChunkifier.chunkifyCode(Bytes.fromHexString("010203")).getFirst();
 
     try (EmbeddingTrieSession session = kind.open()) {
@@ -174,8 +234,8 @@ class Eip8297EmbeddingSectionsTest {
 
   @ParameterizedTest
   @EnumSource(TrieKind.class)
-  void overflowCodeChunkPutGetCommitReload(final TrieKind kind) {
-    final Bytes key = TrieKeyDerivation.getTreeKeyForCodeChunk(ADDRESS_A, CODE_HASH, 300);
+  void largeCodeChunkPutGetCommitReload(final TrieKind kind) {
+    final Bytes key = TrieKeyDerivation.getTreeKeyForCodeChunk(CODE_HASH, 300);
     final Bytes32 value = Bytes32.repeat((byte) 0xAC);
 
     try (EmbeddingTrieSession session = kind.open()) {
@@ -197,33 +257,32 @@ class Eip8297EmbeddingSectionsTest {
         TrieKeyDerivation.getTreeKeyForStorageSlot(ADDRESS_A, UInt256.valueOf(5));
     final Bytes overflowStorageKey =
         TrieKeyDerivation.getTreeKeyForStorageSlot(ADDRESS_A, UInt256.valueOf(1000));
-    final Bytes headerCodeKey = TrieKeyDerivation.getTreeKeyForCodeChunk(ADDRESS_A, CODE_HASH, 5);
-    final Bytes overflowCodeKey =
-        TrieKeyDerivation.getTreeKeyForCodeChunk(ADDRESS_A, CODE_HASH, 300);
+    final Bytes codeChunk5Key = TrieKeyDerivation.getTreeKeyForCodeChunk(CODE_HASH, 5);
+    final Bytes codeChunk300Key = TrieKeyDerivation.getTreeKeyForCodeChunk(CODE_HASH, 300);
 
     final Bytes32 basicValue = BasicDataEncoder.encodeBasicData(3, 4, UInt256.valueOf(42));
     final Bytes32 codeHashValue = CODE_HASH;
     final Bytes32 headerStorageValue = Bytes32.repeat((byte) 0x11);
     final Bytes32 overflowStorageValue = Bytes32.repeat((byte) 0x22);
-    final Bytes32 headerCodeValue =
+    final Bytes32 codeChunk5Value =
         CodeChunkifier.chunkifyCode(Bytes.fromHexString("0x6001")).getFirst();
-    final Bytes32 overflowCodeValue = Bytes32.repeat((byte) 0x33);
+    final Bytes32 codeChunk300Value = Bytes32.repeat((byte) 0x33);
 
     try (EmbeddingTrieSession session = kind.open()) {
       session.put(basicKey, basicValue);
       session.put(codeHashKey, codeHashValue);
       session.put(headerStorageKey, headerStorageValue);
       session.put(overflowStorageKey, overflowStorageValue);
-      session.put(headerCodeKey, headerCodeValue);
-      session.put(overflowCodeKey, overflowCodeValue);
+      session.put(codeChunk5Key, codeChunk5Value);
+      session.put(codeChunk300Key, codeChunk300Value);
       session.commitAndReload();
 
       assertThat(session.get(basicKey)).contains(basicValue.toArray());
       assertThat(session.get(codeHashKey)).contains(codeHashValue.toArray());
       assertThat(session.get(headerStorageKey)).contains(headerStorageValue.toArray());
       assertThat(session.get(overflowStorageKey)).contains(overflowStorageValue.toArray());
-      assertThat(session.get(headerCodeKey)).contains(headerCodeValue.toArray());
-      assertThat(session.get(overflowCodeKey)).contains(overflowCodeValue.toArray());
+      assertThat(session.get(codeChunk5Key)).contains(codeChunk5Value.toArray());
+      assertThat(session.get(codeChunk300Key)).contains(codeChunk300Value.toArray());
       assertThat(session.rootHash()).isEqualTo(session.spec().root());
     }
   }
@@ -409,6 +468,18 @@ class Eip8297EmbeddingSectionsTest {
         return Eip8297EmbeddingSectionsTest.CODE_HASH;
       }
     },
+    DELEGATION_SECTION {
+      @Override
+      Bytes key() {
+        return TrieKeyDerivation.getTreeKeyForDelegation(ADDRESS_A);
+      }
+
+      @Override
+      Bytes32 value() {
+        return DelegationEncoder.encodeDelegation(
+            Bytes.fromHexString("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
+      }
+    },
     HEADER_STORAGE {
       @Override
       Bytes key() {
@@ -431,11 +502,10 @@ class Eip8297EmbeddingSectionsTest {
         return Bytes32.repeat((byte) 0xE8);
       }
     },
-    HEADER_CODE_CHUNK {
+    CODE_CHUNK {
       @Override
       Bytes key() {
-        return TrieKeyDerivation.getTreeKeyForCodeChunk(
-            ADDRESS_A, Eip8297EmbeddingSectionsTest.CODE_HASH, 5);
+        return TrieKeyDerivation.getTreeKeyForCodeChunk(Eip8297EmbeddingSectionsTest.CODE_HASH, 5);
       }
 
       @Override
@@ -443,11 +513,11 @@ class Eip8297EmbeddingSectionsTest {
         return CodeChunkifier.chunkifyCode(Bytes.fromHexString("010203")).getFirst();
       }
     },
-    OVERFLOW_CODE_CHUNK {
+    LARGE_CODE_CHUNK {
       @Override
       Bytes key() {
         return TrieKeyDerivation.getTreeKeyForCodeChunk(
-            ADDRESS_A, Eip8297EmbeddingSectionsTest.CODE_HASH, 300);
+            Eip8297EmbeddingSectionsTest.CODE_HASH, 300);
       }
 
       @Override

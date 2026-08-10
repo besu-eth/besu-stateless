@@ -20,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.BasicDataEncoder;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.CodeChunkifier;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.DelegationEncoder;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKeyDerivation;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.params.EmbeddingParameters;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.hash.TrieHasher;
@@ -61,8 +62,10 @@ class Eip8297EmbeddingPrimitivesTest {
   void embeddingConstants() {
     assertThat(EmbeddingParameters.BASIC_DATA_LEAF_KEY).isEqualTo(0);
     assertThat(EmbeddingParameters.CODE_HASH_LEAF_KEY).isEqualTo(1);
+    assertThat(EmbeddingParameters.DELEGATION_LEAF_KEY).isEqualTo(2);
+    assertThat(EmbeddingParameters.DELEGATION_CODE_SIZE).isEqualTo(23);
     assertThat(EmbeddingParameters.HEADER_STORAGE_OFFSET).isEqualTo(64);
-    assertThat(EmbeddingParameters.CODE_OFFSET).isEqualTo(128);
+    assertThat(EmbeddingParameters.HEADER_STORAGE_SLOTS).isEqualTo(64);
     assertThat(EmbeddingParameters.STEM_SUBTREE_WIDTH).isEqualTo(256);
     assertThat(EmbeddingParameters.ACCOUNT_ZONE).isEqualTo(0);
     assertThat(EmbeddingParameters.CODE_ZONE).isEqualTo(1);
@@ -76,6 +79,14 @@ class Eip8297EmbeddingPrimitivesTest {
   void address20ToAddress32PrependsZeros() {
     final Bytes address = Bytes.repeat((byte) 0xAA, 20);
     assertThat(TrieKeyDerivation.address20ToAddress32(address)).isEqualTo(ADDRESS);
+  }
+
+  @Test
+  void address20ToAddress32RejectsWrongLength() {
+    assertThatThrownBy(() -> TrieKeyDerivation.address20ToAddress32(Bytes.repeat((byte) 0xAA, 19)))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> TrieKeyDerivation.address20ToAddress32(Bytes.repeat((byte) 0xAA, 21)))
+        .isInstanceOf(IllegalArgumentException.class);
   }
 
   @Test
@@ -127,7 +138,26 @@ class Eip8297EmbeddingPrimitivesTest {
         .isEqualTo(Bytes.concatenate(stem, Bytes.of((byte) 0)));
     assertThat(TrieKeyDerivation.getTreeKeyForCodeHash(ADDRESS))
         .isEqualTo(Bytes.concatenate(stem, Bytes.of((byte) 1)));
+    assertThat(TrieKeyDerivation.getTreeKeyForDelegation(ADDRESS))
+        .isEqualTo(Bytes.concatenate(stem, Bytes.of((byte) 2)));
     assertThat(TrieKeyDerivation.getTreeKeyForBasicData(ADDRESS).size()).isEqualTo(34);
+  }
+
+  @Test
+  void delegationLeafValueVector() {
+    final Bytes target = Bytes.fromHexString("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    assertThat(DelegationEncoder.encodeDelegation(target))
+        .isEqualTo(
+            Bytes32.fromHexString(
+                "ef0100bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb000000000000000000"));
+  }
+
+  @Test
+  void encodeDelegationRejectsWrongTargetLength() {
+    assertThatThrownBy(() -> DelegationEncoder.encodeDelegation(Bytes.repeat((byte) 0xBB, 19)))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> DelegationEncoder.encodeDelegation(Bytes.repeat((byte) 0xBB, 21)))
+        .isInstanceOf(IllegalArgumentException.class);
   }
 
   @Test
@@ -175,26 +205,7 @@ class Eip8297EmbeddingPrimitivesTest {
   }
 
   @Test
-  void codeChunkInHeaderVector() {
-    final Bytes32 codeHash =
-        TrieHasher.blake3Hash(
-            Bytes.of(
-                (byte) 's',
-                (byte) 'o',
-                (byte) 'm',
-                (byte) 'e',
-                (byte) ' ',
-                (byte) 'c',
-                (byte) 'o',
-                (byte) 'd',
-                (byte) 'e'));
-    final Bytes key = TrieKeyDerivation.getTreeKeyForCodeChunk(ADDRESS, codeHash, 5);
-    assertThat(key)
-        .isEqualTo(Bytes.concatenate(Bytes.wrap(headerStem(ADDRESS)), Bytes.of((byte) 0x85)));
-  }
-
-  @Test
-  void codeChunkOverflowVector() {
+  void codeChunkVector() {
     final Bytes32 codeHash =
         TrieHasher.blake3Hash(
             Bytes.of(
@@ -210,21 +221,44 @@ class Eip8297EmbeddingPrimitivesTest {
     final Bytes digest = TrieKeyDerivation.keyHash(Bytes.concatenate(codeHash, Bytes32.ZERO));
     final Bytes stem = Bytes.concatenate(Bytes.of((byte) 1), digest);
 
-    final Bytes key = TrieKeyDerivation.getTreeKeyForCodeChunk(ADDRESS, codeHash, 300);
-    assertThat(key).isEqualTo(Bytes.concatenate(stem, Bytes.of((byte) 0xAC)));
+    final Bytes key = TrieKeyDerivation.getTreeKeyForCodeChunk(codeHash, 5);
+    assertThat(key).isEqualTo(Bytes.concatenate(stem, Bytes.of((byte) 0x05)));
+    assertThat(key.size()).isEqualTo(34);
+    assertThat(key.get(0)).isEqualTo((byte) 1);
+  }
+
+  @Test
+  void codeChunkLargeIndexVector() {
+    final Bytes32 codeHash =
+        TrieHasher.blake3Hash(
+            Bytes.of(
+                (byte) 's',
+                (byte) 'o',
+                (byte) 'm',
+                (byte) 'e',
+                (byte) ' ',
+                (byte) 'c',
+                (byte) 'o',
+                (byte) 'd',
+                (byte) 'e'));
+    final Bytes digest =
+        TrieKeyDerivation.keyHash(Bytes.concatenate(codeHash, Bytes32.leftPad(UInt256.valueOf(1))));
+    final Bytes stem = Bytes.concatenate(Bytes.of((byte) 1), digest);
+
+    final Bytes key = TrieKeyDerivation.getTreeKeyForCodeChunk(codeHash, 300);
+    assertThat(key).isEqualTo(Bytes.concatenate(stem, Bytes.of((byte) 0x2C)));
     assertThat(key.size()).isEqualTo(34);
   }
 
   @Test
   void negativeCodeChunkIndexIsRejected() {
     assertThatThrownBy(
-            () ->
-                TrieKeyDerivation.getTreeKeyForCodeChunk(ADDRESS, Bytes32.repeat((byte) 0x01), -1))
+            () -> TrieKeyDerivation.getTreeKeyForCodeChunk(Bytes32.repeat((byte) 0x01), -1))
         .isInstanceOf(IllegalArgumentException.class);
   }
 
   @Test
-  void overflowCodeIsContentAddressed() {
+  void codeIsContentAddressed() {
     final Bytes32 codeHash =
         TrieHasher.blake3Hash(
             Bytes.of(
@@ -243,13 +277,14 @@ class Eip8297EmbeddingPrimitivesTest {
                 (byte) 'o',
                 (byte) 'd',
                 (byte) 'e'));
-    final Bytes32 other =
-        Bytes32.fromHexString("000000000000000000000000bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    final Bytes32 otherCodeHash = TrieHasher.blake3Hash(Bytes.of((byte) 'x'));
 
-    assertThat(TrieKeyDerivation.getTreeKeyForCodeChunk(ADDRESS, codeHash, 200))
-        .isEqualTo(TrieKeyDerivation.getTreeKeyForCodeChunk(other, codeHash, 200));
-    assertThat(TrieKeyDerivation.getTreeKeyForCodeChunk(ADDRESS, codeHash, 5))
-        .isNotEqualTo(TrieKeyDerivation.getTreeKeyForCodeChunk(other, codeHash, 5));
+    assertThat(TrieKeyDerivation.getTreeKeyForCodeChunk(codeHash, 5).get(0))
+        .isEqualTo((byte) EmbeddingParameters.CODE_ZONE);
+    assertThat(TrieKeyDerivation.getTreeKeyForCodeChunk(codeHash, 5))
+        .isNotEqualTo(TrieKeyDerivation.getTreeKeyForCodeChunk(otherCodeHash, 5));
+    assertThat(TrieKeyDerivation.getTreeKeyForCodeChunk(codeHash, 200))
+        .isNotEqualTo(TrieKeyDerivation.getTreeKeyForCodeChunk(otherCodeHash, 200));
   }
 
   @Test

@@ -237,9 +237,9 @@ class PartitionedBinaryTrieInteropTest {
                 (byte) 'o',
                 (byte) 'd',
                 (byte) 'e'));
-    final Bytes codeChunk300Key = TrieKeyDerivation.getTreeKeyForCodeChunk(ADDRESS, codeHash, 300);
+    final Bytes codeChunk300Key = TrieKeyDerivation.getTreeKeyForCodeChunk(codeHash, 300);
     assertThat(codeChunk300Key.slice(codeChunk300Key.size() - 4, 4))
-        .isEqualTo(Bytes.fromHexString("a4ecadac"));
+        .isEqualTo(Bytes.fromHexString("37f0f32c"));
 
     assertThat(
             BasicDataEncoder.encodeBasicData(

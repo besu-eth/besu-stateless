@@ -287,26 +287,26 @@ class BinaryTrieConformanceTest {
   }
 
   @Test
-  void stateWriteZeroDeletesExistingLeaf() {
+  void removeDeletesExistingLeaf() {
     final Bytes key = Bytes.concatenate(Bytes.repeat((byte) 0x07, 31), Bytes.of((byte) 0));
     final Bytes32 value = Bytes32.repeat((byte) 0x42);
     final BinaryTrie trie = new BinaryTrie();
 
-    trie.writeState(key, value);
+    trie.put(key, value);
     assertThat(trie.get(key)).contains(value);
 
-    trie.writeState(key, Bytes32.ZERO);
+    trie.remove(key);
     assertThat(trie.get(key)).isEmpty();
     assertThat(trie.readState(key)).isEqualTo(Bytes32.ZERO);
     assertThat(trie.root()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
   }
 
   @Test
-  void stateWriteZeroToAbsentKeyIsNoOp() {
+  void removeAbsentKeyIsNoOp() {
     final Bytes key = Bytes.concatenate(Bytes.repeat((byte) 0x07, 31), Bytes.of((byte) 0));
     final BinaryTrie trie = new BinaryTrie();
 
-    trie.writeState(key, Bytes32.ZERO);
+    trie.remove(key);
 
     assertThat(trie.get(key)).isEmpty();
     assertThat(trie.root()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);

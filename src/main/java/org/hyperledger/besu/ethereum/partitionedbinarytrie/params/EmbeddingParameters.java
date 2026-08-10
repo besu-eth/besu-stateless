@@ -27,11 +27,19 @@ public final class EmbeddingParameters {
   /** Sub-index for the code-hash leaf in the account header stem. */
   public static final int CODE_HASH_LEAF_KEY = 1;
 
+  /** Sub-index for the EIP-7702 delegation indicator leaf in the account header stem. */
+  public static final int DELEGATION_LEAF_KEY = 2;
+
+  /**
+   * {@code code_size} stored in basic data for an account holding an EIP-7702 delegation indicator.
+   */
+  public static final int DELEGATION_CODE_SIZE = 23;
+
   /** First storage slot index stored in the account header stem (slots 0–63). */
   public static final int HEADER_STORAGE_OFFSET = 64;
 
-  /** First code chunk index stored in the account header stem. */
-  public static final int CODE_OFFSET = 128;
+  /** Number of storage slots co-located in the account header stem. */
+  public static final int HEADER_STORAGE_SLOTS = 64;
 
   /** Width of a stem subtree (256 children per stem group). */
   public static final int STEM_SUBTREE_WIDTH = 256;
