@@ -85,6 +85,6 @@ public final class StoredTrieNode extends TrieNode {
 
   @Override
   public void accept(final Bytes loc, final LocationNodeVisitor visitor) {
-    load().accept(location, visitor);
+    load().accept(loc, visitor);
   }
 }

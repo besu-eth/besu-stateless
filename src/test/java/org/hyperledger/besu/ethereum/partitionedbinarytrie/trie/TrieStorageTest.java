@@ -25,9 +25,6 @@ import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.NodeUpda
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.PartitionedBinaryTrieFactory;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference.BinaryTrie;
 
-import java.util.ArrayList;
-import java.util.List;
-
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -35,10 +32,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * Stored-mode commit and reload and Besu rollback simulation.
+ * Stored-mode commit and reload over location-keyed mock storage (Besu Bonsai semantics).
  *
- * <p>Layer: trie ({@link StoredPartitionedBinaryTrie} via factory). Nodes are content-addressed;
- * historical roots remain loadable after later commits. Root hashes compared against {@link
+ * <p>Layer: trie ({@link StoredPartitionedBinaryTrie} via factory). Nodes are persisted at trie
+ * paths; reload opens the current root at {@link Bytes#EMPTY}. Root hashes compared against {@link
  * BinaryTrie} where applicable.
  */
 class TrieStorageTest {
@@ -81,11 +78,10 @@ class TrieStorageTest {
   }
 
   @Test
-  void sequentialCommitsAccumulateHistoricalRoots() {
+  void sequentialCommitsReloadCurrentState() {
     final Bytes[] keys = {
       Bytes.fromHexString("0x01"), Bytes.fromHexString("0x02"), Bytes.fromHexString("0x03")
     };
-    final List<Bytes32> roots = new ArrayList<>();
     final BinaryTrie spec = new BinaryTrie();
     final StoredPartitionedBinaryTrie trie = factory.create();
 
@@ -94,45 +90,42 @@ class TrieStorageTest {
       spec.put(keys[i], value);
       trie.put(keys[i].toArray(), keys[i].size(), value.toArray());
       trie.commit(nodeUpdater);
-      roots.add(trie.getRootHash());
       assertThat(trie.getRootHash()).isEqualTo(spec.root());
-    }
 
-    assertThat(nodeUpdater.storage.size()).isGreaterThan(1);
-
-    for (int i = 0; i < roots.size(); i++) {
-      final StoredPartitionedBinaryTrie view = factory.create(roots.get(i));
+      final StoredPartitionedBinaryTrie reloaded = factory.create();
       for (int j = 0; j <= i; j++) {
         final Bytes32 expected = Bytes32.repeat((byte) (0x10 + j));
-        assertThat(view.get(keys[j].toArray(), keys[j].size()))
-            .as("root %d key %d", i, j)
+        assertThat(reloaded.get(keys[j].toArray(), keys[j].size()))
+            .as("after commit %d key %d", i, j)
             .contains(expected.toArray());
       }
       for (int j = i + 1; j < keys.length; j++) {
-        assertThat(view.get(keys[j].toArray(), keys[j].size()))
-            .as("root %d absent key %d", i, j)
+        assertThat(reloaded.get(keys[j].toArray(), keys[j].size()))
+            .as("after commit %d absent key %d", i, j)
             .isEmpty();
       }
+      assertThat(reloaded.getRootHash()).isEqualTo(trie.getRootHash());
     }
+
+    assertThat(nodeUpdater.storage.size()).isGreaterThan(1);
   }
 
   @Test
-  void removeCommitPreservesPriorRootSnapshot() {
+  void removeCommitReloadsEmptyTrie() {
     final Bytes key = Bytes.fromHexString("0xfeed");
     final Bytes32 value = Bytes32.repeat((byte) 0x55);
     final StoredPartitionedBinaryTrie trie = factory.create();
 
     trie.put(key.toArray(), key.size(), value.toArray());
     trie.commit(nodeUpdater);
-    final Bytes32 rootWithValue = trie.getRootHash();
 
     trie.remove(key.toArray(), key.size());
     trie.commit(nodeUpdater);
     assertThat(trie.getRootHash()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
 
-    final StoredPartitionedBinaryTrie historical = factory.create(rootWithValue);
-    assertThat(historical.get(key.toArray(), key.size())).contains(value.toArray());
-    assertThat(historical.getRootHash()).isEqualTo(rootWithValue);
+    final StoredPartitionedBinaryTrie reloaded = factory.create();
+    assertThat(reloaded.get(key.toArray(), key.size())).isEmpty();
+    assertThat(reloaded.getRootHash()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
   }
 
   @Test

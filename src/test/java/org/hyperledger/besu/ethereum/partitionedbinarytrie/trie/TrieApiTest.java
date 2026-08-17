@@ -76,7 +76,6 @@ class TrieApiTest {
     final StoredPartitionedBinaryTrie trie = new StoredPartitionedBinaryTrie(nodeLoader);
     trie.put(key, value);
     trie.commit(nodeUpdater);
-    final Bytes32 rootWithValue = trie.getRootHash();
 
     trie.putDeferred(key, existing -> Optional.empty());
     trie.commit(nodeUpdater);
@@ -84,9 +83,9 @@ class TrieApiTest {
     assertThat(trie.get(key)).isEmpty();
     assertThat(trie.isEmpty()).isTrue();
 
-    final StoredPartitionedBinaryTrie historical =
-        new StoredPartitionedBinaryTrie(nodeLoader, rootWithValue);
-    assertThat(historical.get(key)).contains(value);
+    final StoredPartitionedBinaryTrie reloaded = new StoredPartitionedBinaryTrie(nodeLoader);
+    assertThat(reloaded.get(key)).isEmpty();
+    assertThat(reloaded.getRootHash()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
   }
 
   @Test
@@ -107,9 +106,10 @@ class TrieApiTest {
     trie.commit(nodeUpdater);
     assertThat(trie.getRootHash()).isEqualTo(rootA);
 
-    final StoredPartitionedBinaryTrie atRootA = new StoredPartitionedBinaryTrie(nodeLoader, rootA);
-    assertThat(atRootA.get(keyA)).contains(valueA);
-    assertThat(atRootA.get(keyB)).isEmpty();
+    final StoredPartitionedBinaryTrie reloaded = new StoredPartitionedBinaryTrie(nodeLoader);
+    assertThat(reloaded.get(keyA)).contains(valueA);
+    assertThat(reloaded.get(keyB)).isEmpty();
+    assertThat(reloaded.getRootHash()).isEqualTo(rootA);
   }
 
   @Test

@@ -23,39 +23,22 @@ import java.util.Map;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
+/**
+ * Location-keyed trie node store, mirroring Besu Bonsai {@code
+ * BonsaiWorldStateKeyValueStorage#getTrieNode(location, hash)} which resolves nodes by {@code
+ * location} only (the {@code hash} parameter is ignored except for the empty-trie shortcut).
+ */
 public final class NodeUpdaterMock implements NodeUpdater {
 
-  /** Latest node bytes at each trie path (current root lives at {@link Bytes#EMPTY}). */
+  /** Node bytes at each trie path (current root lives at {@link Bytes#EMPTY}). */
   public final Map<Bytes, Bytes> storage = new HashMap<>();
-
-  /** Content-addressed node bytes for historical root reload (Besu rollback simulation). */
-  private final Map<Bytes32, Bytes> byHash = new HashMap<>();
 
   @Override
   public void store(final Bytes location, final Bytes32 hash, final Bytes value) {
     if (value == null) {
       storage.remove(location);
-      if (hash != null) {
-        byHash.remove(hash);
-      }
       return;
     }
     storage.put(location, value);
-    if (hash != null) {
-      byHash.put(hash, value);
-    }
-  }
-
-  /**
-   * Returns bytes stored for {@code hash}, falling back to {@code location} when hash is absent.
-   */
-  public Bytes lookup(final Bytes location, final Bytes32 hash) {
-    if (hash != null) {
-      final Bytes byHashValue = byHash.get(hash);
-      if (byHashValue != null) {
-        return byHashValue;
-      }
-    }
-    return storage.get(location);
   }
 }

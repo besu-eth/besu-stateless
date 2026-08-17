@@ -26,9 +26,7 @@ import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.Partitio
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference.BinaryTrie;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference.MutableBinaryTrie;
 
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
@@ -45,8 +43,9 @@ import org.junit.jupiter.api.Test;
  * Rollback and removal semantics for the partitioned binary trie.
  *
  * <p>Layer: trie storage and in-memory {@link PartitionedBinaryTrie}. The raw trie is non-sparse:
- * absent keys occupy no nodes. Callers map EIP-8297 zero values to {@code remove}. Historical roots
- * remain loadable after Besu-style rollback; root hashes are compared against {@link BinaryTrie}.
+ * absent keys occupy no nodes. Callers map EIP-8297 zero values to {@code remove}. Stored-mode
+ * tests reload the current root from location-keyed storage; in-memory rollback semantics are
+ * covered separately. Root hashes are compared against {@link BinaryTrie}.
  */
 class TrieHistoryAndDeletionTest {
 
@@ -276,12 +275,12 @@ class TrieHistoryAndDeletionTest {
   }
 
   /**
-   * Besu-style rollback on stored trie: reopen at historical root after commit/remove chains.
+   * Stored trie commit, remove, and reload of the current root from location-keyed storage.
    *
-   * <p>Oracle: {@link BinaryTrie} for root hash; factory reload for value presence.
+   * <p>Oracle: {@link BinaryTrie} for root hash; {@code factory.create()} for reload.
    */
   @Nested
-  class StoredTrieHistoricalRoots {
+  class StoredTrieCommitReload {
 
     @Test
     void commitRemoveCommitRestoresPriorRoot() {
@@ -291,19 +290,19 @@ class TrieHistoryAndDeletionTest {
       final StoredPartitionedBinaryTrie trie = factory.create();
       trie.put(key.toArray(), key.size(), value.toArray());
       trie.commit(nodeUpdater);
-      final Bytes32 rootWithData = trie.getRootHash();
 
       trie.remove(key.toArray(), key.size());
       trie.commit(nodeUpdater);
       assertThat(trie.getRootHash()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
       assertThat(trie.get(key.toArray(), key.size())).isEmpty();
 
-      final StoredPartitionedBinaryTrie reloaded = factory.create(rootWithData);
-      assertThat(reloaded.get(key.toArray(), key.size())).contains(value.toArray());
+      final StoredPartitionedBinaryTrie reloaded = factory.create();
+      assertThat(reloaded.get(key.toArray(), key.size())).isEmpty();
+      assertThat(reloaded.getRootHash()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
     }
 
     @Test
-    void besuRollbackReopensHistoricalRoot() {
+    void removeThenAddRestoresEquivalentRoot() {
       final Bytes key1 = Bytes.fromHexString("0x1111");
       final Bytes key2 = Bytes.fromHexString("0x2222");
       final Bytes32 value1 = Bytes32.repeat((byte) 0xAA);
@@ -317,76 +316,50 @@ class TrieHistoryAndDeletionTest {
 
       trie.put(key2.toArray(), key2.size(), value2.toArray());
       trie.commit(nodeUpdater);
-      final Bytes32 root2 = trie.getRootHash();
-      assertThat(root2).isNotEqualTo(root1);
+      assertThat(trie.getRootHash()).isNotEqualTo(root1);
 
       trie.remove(key2.toArray(), key2.size());
       trie.commit(nodeUpdater);
       assertThat(trie.getRootHash()).isEqualTo(root1);
 
-      final StoredPartitionedBinaryTrie atRoot1 = factory.create(root1);
-      assertThat(atRoot1.get(key1.toArray(), key1.size())).contains(value1.toArray());
-      assertThat(atRoot1.get(key2.toArray(), key2.size())).isEmpty();
-
-      final StoredPartitionedBinaryTrie atRoot2 = factory.create(root2);
-      assertThat(atRoot2.get(key1.toArray(), key1.size())).contains(value1.toArray());
-      assertThat(atRoot2.get(key2.toArray(), key2.size())).contains(value2.toArray());
+      final StoredPartitionedBinaryTrie reloaded = factory.create();
+      assertThat(reloaded.get(key1.toArray(), key1.size())).contains(value1.toArray());
+      assertThat(reloaded.get(key2.toArray(), key2.size())).isEmpty();
+      assertThat(reloaded.getRootHash()).isEqualTo(root1);
     }
 
     @Test
-    void besuRollbackChainOfThreeStates() {
-      final List<Bytes32> roots = new ArrayList<>();
-      final List<Map<Bytes, Bytes32>> snapshots = new ArrayList<>();
+    void sequentialRemoveChainReloadsCurrentState() {
       final StoredPartitionedBinaryTrie trie = factory.create();
       final BinaryTrie spec = new BinaryTrie();
-      final Map<Bytes, Bytes32> live = new HashMap<>();
-
-      roots.add(trie.getRootHash());
-      snapshots.add(Map.copyOf(live));
 
       final Bytes[] keys = {
         Bytes.fromHexString("0x01"), Bytes.fromHexString("0x02"), Bytes.fromHexString("0x03")
       };
       for (int i = 0; i < keys.length; i++) {
         final Bytes32 value = Bytes32.repeat((byte) (0x10 + i));
-        live.put(keys[i], value);
         spec.put(keys[i], value);
         trie.put(keys[i].toArray(), keys[i].size(), value.toArray());
         trie.commit(nodeUpdater);
-        roots.add(trie.getRootHash());
-        snapshots.add(Map.copyOf(live));
         assertThat(trie.getRootHash()).isEqualTo(spec.root());
       }
 
       trie.remove(keys[2].toArray(), keys[2].size());
       spec.remove(keys[2]);
-      live.remove(keys[2]);
       trie.commit(nodeUpdater);
-      assertThat(trie.getRootHash()).isEqualTo(roots.get(2));
       assertThat(trie.getRootHash()).isEqualTo(spec.root());
 
       trie.remove(keys[1].toArray(), keys[1].size());
       spec.remove(keys[1]);
-      live.remove(keys[1]);
       trie.commit(nodeUpdater);
-      assertThat(trie.getRootHash()).isEqualTo(roots.get(1));
+      assertThat(trie.getRootHash()).isEqualTo(spec.root());
 
-      for (int i = 0; i < roots.size(); i++) {
-        final StoredPartitionedBinaryTrie view = factory.create(roots.get(i));
-        final Map<Bytes, Bytes32> expected = snapshots.get(i);
-        for (final Map.Entry<Bytes, Bytes32> e : expected.entrySet()) {
-          assertThat(view.get(e.getKey().toArray(), e.getKey().size()))
-              .as("root index %d key %s", i, e.getKey())
-              .contains(e.getValue().toArray());
-        }
-        for (final Bytes key : keys) {
-          if (!expected.containsKey(key)) {
-            assertThat(view.get(key.toArray(), key.size()))
-                .as("root index %d absent key %s", i, key)
-                .isEmpty();
-          }
-        }
-      }
+      final StoredPartitionedBinaryTrie reloaded = factory.create();
+      assertThat(reloaded.get(keys[0].toArray(), keys[0].size()))
+          .contains(Bytes32.repeat((byte) 0x10).toArray());
+      assertThat(reloaded.get(keys[1].toArray(), keys[1].size())).isEmpty();
+      assertThat(reloaded.get(keys[2].toArray(), keys[2].size())).isEmpty();
+      assertThat(reloaded.getRootHash()).isEqualTo(spec.root());
     }
 
     @Test
@@ -420,8 +393,7 @@ class TrieHistoryAndDeletionTest {
       trie.put(keyB.toArray(), keyB.size(), valueB.toArray());
       spec.put(keyB, valueB);
       trie.commit(nodeUpdater);
-      final Bytes32 rootBoth = trie.getRootHash();
-      assertThat(rootBoth).isNotEqualTo(rootAfterA);
+      assertThat(trie.getRootHash()).isNotEqualTo(rootAfterA);
 
       trie.remove(keyB.toArray(), keyB.size());
       spec.remove(keyB);
@@ -429,10 +401,10 @@ class TrieHistoryAndDeletionTest {
       assertThat(trie.getRootHash()).isEqualTo(rootAfterA);
       assertThat(trie.getRootHash()).isEqualTo(spec.root());
 
-      assertThat(factory.create(rootAfterA).get(keyA.toArray(), keyA.size()))
-          .contains(valueA.toArray());
-      assertThat(factory.create(rootBoth).get(keyB.toArray(), keyB.size()))
-          .contains(valueB.toArray());
+      final StoredPartitionedBinaryTrie reloaded = factory.create();
+      assertThat(reloaded.get(keyA.toArray(), keyA.size())).contains(valueA.toArray());
+      assertThat(reloaded.get(keyB.toArray(), keyB.size())).isEmpty();
+      assertThat(reloaded.getRootHash()).isEqualTo(rootAfterA);
     }
 
     @Test
@@ -453,7 +425,6 @@ class TrieHistoryAndDeletionTest {
       spec.remove(key);
       trie.commit(nodeUpdater);
       assertThat(trie.getRootHash()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
-      assertThat(factory.create(root1).get(key.toArray(), key.size())).contains(value1.toArray());
 
       trie.put(key.toArray(), key.size(), value2.toArray());
       spec.put(key, value2);
@@ -462,7 +433,10 @@ class TrieHistoryAndDeletionTest {
       assertThat(root2).isNotEqualTo(root1);
       assertThat(trie.getRootHash()).isEqualTo(spec.root());
       assertThat(trie.get(key.toArray(), key.size())).contains(value2.toArray());
-      assertThat(factory.create(root2).get(key.toArray(), key.size())).contains(value2.toArray());
+
+      final StoredPartitionedBinaryTrie reloaded = factory.create();
+      assertThat(reloaded.get(key.toArray(), key.size())).contains(value2.toArray());
+      assertThat(reloaded.getRootHash()).isEqualTo(root2);
     }
 
     @Test
@@ -473,27 +447,29 @@ class TrieHistoryAndDeletionTest {
       final StoredPartitionedBinaryTrie trie = factory.create();
       trie.put(key.toArray(), key.size(), value.toArray());
       trie.commit(nodeUpdater);
-      final Bytes32 rootWithValue = trie.getRootHash();
 
       trie.putDeferred(key.toArray(), key.size(), existing -> Optional.empty());
       trie.commit(nodeUpdater);
 
       assertThat(trie.getRootHash()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
-      assertThat(factory.create(rootWithValue).get(key.toArray(), key.size()))
-          .contains(value.toArray());
+      assertThat(trie.get(key.toArray(), key.size())).isEmpty();
+
+      final StoredPartitionedBinaryTrie reloaded = factory.create();
+      assertThat(reloaded.get(key.toArray(), key.size())).isEmpty();
+      assertThat(reloaded.getRootHash()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
     }
   }
 
   /**
-   * Rollback with EIP-8297 embedding keys (basic data, code hash) in stored mode.
+   * Remove and reload with EIP-8297 embedding keys (basic data, code hash) in stored mode.
    *
-   * <p>Oracle: {@link BinaryTrie} root hash and factory reload for historical snapshots.
+   * <p>Oracle: {@link BinaryTrie} root hash and current-root reload via {@code factory.create()}.
    */
   @Nested
-  class EmbeddingKeyRollback {
+  class EmbeddingKeyCommitReload {
 
     @Test
-    void accountBasicDataRemoveRestoresEmptyAccount() {
+    void accountBasicDataRemoveReloadsEmptyTrie() {
       final Bytes basicKey = TrieKeyDerivation.getTreeKeyForBasicData(ADDRESS);
       final Bytes32 basicData = BasicDataEncoder.encodeBasicData(1, 2, UInt256.valueOf(100));
 
@@ -503,7 +479,6 @@ class TrieHistoryAndDeletionTest {
       trie.put(basicKey.toArray(), basicKey.size(), basicData.toArray());
       spec.put(basicKey, basicData);
       trie.commit(nodeUpdater);
-      final Bytes32 rootWithAccount = trie.getRootHash();
       assertThat(trie.getRootHash()).isEqualTo(spec.root());
 
       trie.remove(basicKey.toArray(), basicKey.size());
@@ -512,8 +487,9 @@ class TrieHistoryAndDeletionTest {
       assertThat(trie.getRootHash()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
       assertThat(trie.getRootHash()).isEqualTo(spec.root());
 
-      final StoredPartitionedBinaryTrie rolledBack = factory.create(rootWithAccount);
-      assertThat(rolledBack.get(basicKey.toArray(), basicKey.size())).contains(basicData.toArray());
+      final StoredPartitionedBinaryTrie reloaded = factory.create();
+      assertThat(reloaded.get(basicKey.toArray(), basicKey.size())).isEmpty();
+      assertThat(reloaded.getRootHash()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
     }
 
     @Test
@@ -527,16 +503,15 @@ class TrieHistoryAndDeletionTest {
       trie.put(basicKey.toArray(), basicKey.size(), basicData.toArray());
       trie.put(codeHashKey.toArray(), codeHashKey.size(), codeHash.toArray());
       trie.commit(nodeUpdater);
-      final Bytes32 rootBoth = trie.getRootHash();
 
       trie.remove(codeHashKey.toArray(), codeHashKey.size());
       trie.commit(nodeUpdater);
       assertThat(trie.get(codeHashKey.toArray(), codeHashKey.size())).isEmpty();
       assertThat(trie.get(basicKey.toArray(), basicKey.size())).contains(basicData.toArray());
 
-      final StoredPartitionedBinaryTrie atBoth = factory.create(rootBoth);
-      assertThat(atBoth.get(codeHashKey.toArray(), codeHashKey.size()))
-          .contains(codeHash.toArray());
+      final StoredPartitionedBinaryTrie reloaded = factory.create();
+      assertThat(reloaded.get(codeHashKey.toArray(), codeHashKey.size())).isEmpty();
+      assertThat(reloaded.get(basicKey.toArray(), basicKey.size())).contains(basicData.toArray());
     }
   }
 
