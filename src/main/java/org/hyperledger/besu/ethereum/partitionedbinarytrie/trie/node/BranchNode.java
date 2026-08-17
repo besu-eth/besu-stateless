@@ -118,7 +118,12 @@ public final class BranchNode extends TrieNode {
       System.arraycopy(branch.prefixBits, 0, merged, prefixLen + 1, branch.prefixLen);
       return new BranchNode(merged, mergedLen, branch.leftChild(), branch.rightChild(), false);
     }
-    return survivor;
+    // Leaf (or empty) survivor: it is hoisted to a shallower location without changing its own
+    // content. Storage is location-keyed, so it must still be marked dirty here or the commit
+    // walk will skip re-persisting it at its new (shorter) location and leave the stale node
+    // from its old location reachable after reload.
+    loaded.markDirty();
+    return loaded;
   }
 
   @Override

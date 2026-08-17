@@ -585,7 +585,7 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
 
   /** Stores the root under the empty location and resets it to a clean stored proxy. */
   private void storeAndResetRoot(final NodeUpdater nodeUpdater) {
-    final Bytes32 rootHash = getRootHash();
+    final Bytes32 rootHash = Bytes32.wrap(root.merkleHashBytes());
     nodeUpdater.store(Bytes.EMPTY, rootHash, root.encode());
 
     this.root =

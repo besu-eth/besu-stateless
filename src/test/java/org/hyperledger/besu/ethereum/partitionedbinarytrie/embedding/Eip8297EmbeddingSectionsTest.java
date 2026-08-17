@@ -308,14 +308,13 @@ class Eip8297EmbeddingSectionsTest {
 
   @ParameterizedTest
   @MethodSource("storedWithEmbeddingSections")
-  void removeSectionPreservesHistoricalRoot(final TrieKind kind, final EmbeddingSection section) {
+  void removeSectionReloadsEmptyTrie(final TrieKind kind, final EmbeddingSection section) {
     final Bytes key = section.key();
     final Bytes32 value = section.value();
 
     try (EmbeddingTrieSession session = kind.open()) {
       session.put(key, value);
       session.commit();
-      final Bytes32 rootWithValue = session.rootHash();
 
       session.remove(key);
       session.commit();
@@ -323,10 +322,9 @@ class Eip8297EmbeddingSectionsTest {
       assertThat(session.rootHash()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
       assertThat(session.rootHash()).isEqualTo(session.spec().root());
 
-      try (EmbeddingTrieSession historical = session.atRoot(rootWithValue)) {
-        assertThat(historical.get(key)).contains(value.toArray());
-        assertThat(historical.rootHash()).isEqualTo(rootWithValue);
-      }
+      session.commitAndReload();
+      assertThat(session.get(key)).isEmpty();
+      assertThat(session.rootHash()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
     }
   }
 
@@ -338,10 +336,8 @@ class Eip8297EmbeddingSectionsTest {
         session.put(section.key(), section.value());
       }
       session.commit();
-      final Bytes32 rootAll = session.rootHash();
 
       final Bytes removedKey = sectionToRemove.key();
-      final Bytes32 removedValue = sectionToRemove.value();
       session.remove(removedKey);
       session.commit();
       assertThat(session.get(removedKey)).isEmpty();
@@ -356,9 +352,13 @@ class Eip8297EmbeddingSectionsTest {
         }
       }
 
-      try (EmbeddingTrieSession historical = session.atRoot(rootAll)) {
-        assertThat(historical.get(removedKey)).contains(removedValue.toArray());
-        assertThat(historical.rootHash()).isEqualTo(rootAll);
+      session.commitAndReload();
+      assertThat(session.get(removedKey)).isEmpty();
+      for (final EmbeddingSection section : EmbeddingSection.values()) {
+        final Bytes key = section.key();
+        if (!key.equals(removedKey)) {
+          assertThat(session.get(key)).contains(section.value().toArray());
+        }
       }
     }
   }
@@ -396,10 +396,6 @@ class Eip8297EmbeddingSectionsTest {
       assertThat(session.get(key)).isEmpty();
       assertThat(session.rootHash()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
 
-      try (EmbeddingTrieSession historical = session.atRoot(root1)) {
-        assertThat(historical.get(key)).contains(value1.toArray());
-      }
-
       session.put(key, value2);
       session.commit();
       final Bytes32 root2 = session.rootHash();
@@ -407,15 +403,15 @@ class Eip8297EmbeddingSectionsTest {
       assertThat(session.get(key)).contains(value2.toArray());
       assertThat(session.rootHash()).isEqualTo(session.spec().root());
 
-      try (EmbeddingTrieSession atRoot2 = session.atRoot(root2)) {
-        assertThat(atRoot2.get(key)).contains(value2.toArray());
-      }
+      session.commitAndReload();
+      assertThat(session.get(key)).contains(value2.toArray());
+      assertThat(session.rootHash()).isEqualTo(root2);
     }
   }
 
   @ParameterizedTest
   @MethodSource("storedWithEmbeddingSections")
-  void putDeferredRemoveSectionPreservesHistoricalRoot(
+  void putDeferredRemoveSectionReloadsEmptyTrie(
       final TrieKind kind, final EmbeddingSection section) {
     final Bytes key = section.key();
     final Bytes32 value = section.value();
@@ -423,7 +419,6 @@ class Eip8297EmbeddingSectionsTest {
     try (EmbeddingTrieSession session = kind.open()) {
       session.put(key, value);
       session.commit();
-      final Bytes32 rootWithValue = session.rootHash();
 
       session.putDeferred(key, existing -> Optional.empty());
       session.commit();
@@ -431,10 +426,9 @@ class Eip8297EmbeddingSectionsTest {
       assertThat(session.rootHash()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
       assertThat(session.rootHash()).isEqualTo(session.spec().root());
 
-      try (EmbeddingTrieSession historical = session.atRoot(rootWithValue)) {
-        assertThat(historical.get(key)).contains(value.toArray());
-        assertThat(historical.rootHash()).isEqualTo(rootWithValue);
-      }
+      session.commitAndReload();
+      assertThat(session.get(key)).isEmpty();
+      assertThat(session.rootHash()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
     }
   }
 
@@ -625,20 +619,13 @@ class Eip8297EmbeddingSectionsTest {
     void commitAndReload() {
       commit();
       final Bytes32 root = rootHash();
-      reloadAt(root);
+      reloadCurrent();
       assertThat(rootHash()).isEqualTo(root);
     }
 
-    EmbeddingTrieSession atRoot(final Bytes32 root) {
+    private void reloadCurrent() {
       if (factory != null) {
-        return new EmbeddingTrieSession(factory.create(root), spec, nodeUpdater, factory);
-      }
-      throw new UnsupportedOperationException("Historical roots require stored mode");
-    }
-
-    private void reloadAt(final Bytes32 root) {
-      if (factory != null) {
-        trie = factory.create(root);
+        trie = factory.create();
       }
     }
 

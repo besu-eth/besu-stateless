@@ -22,6 +22,7 @@ import java.util.Optional;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
+/** Location-keyed trie node loader backed by {@link NodeUpdaterMock}. */
 public final class NodeLoaderMock implements NodeLoader {
 
   private final NodeUpdaterMock updater;
@@ -32,6 +33,6 @@ public final class NodeLoaderMock implements NodeLoader {
 
   @Override
   public Optional<Bytes> getNode(final Bytes location, final Bytes32 hash) {
-    return Optional.ofNullable(updater.lookup(location, hash));
+    return Optional.ofNullable(updater.storage.get(location));
   }
 }

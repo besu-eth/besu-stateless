@@ -44,8 +44,8 @@ public class RemoveVisitor implements PathNodeVisitor {
 
   @Override
   public TrieNode visit(final EmptyTrieNode emptyNode, final TrieKey key, final int depth) {
-    // Removing an absent key is a no-op; the empty subtree stays empty.
-    return NULL_NODE;
+    // Removing an absent key is a no-op; keep the empty subtree (PMT NullNode semantics).
+    return emptyNode;
   }
 
   @Override

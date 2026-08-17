@@ -24,12 +24,7 @@ dependencyManagement {
             entry 'tuweni-units'
         }
 
-        // Dev snapshot — not on besu-maven. From Besu at commit 4c6c3d0, publish trie + runtime deps:
-        // ./gradlew :crypto:algorithms:publishToMavenLocal :datatypes:publishToMavenLocal \
-        //   :ethereum:rlp:publishToMavenLocal :plugin-api:publishToMavenLocal \
-        //   :plugin-api:core:publishToMavenLocal :metrics:plugin-api:publishToMavenLocal \
-        //   :evm:publishToMavenLocal :util:publishToMavenLocal :ethereum:trie:publishToMavenLocal -x test
-        dependencySet(group: 'org.hyperledger.besu.internal', version: '26.8-develop-4c6c3d0') {
+        dependencySet(group: 'org.hyperledger.besu.internal', version: '26.7.1') {
             entry 'besu-ethereum-trie'
         }
 

@@ -39,7 +39,10 @@ public class CommitVisitor implements LocationNodeVisitor {
   }
 
   @Override
-  public void visit(final Bytes location, final EmptyTrieNode emptyNode) {}
+  public void visit(final Bytes location, final EmptyTrieNode emptyNode) {
+    // Clear any previously committed node bytes at this path (required for location-keyed reload).
+    nodeUpdater.store(location, null, null);
+  }
 
   @Override
   public void visit(final Bytes location, final LeafNode leafNode) {
