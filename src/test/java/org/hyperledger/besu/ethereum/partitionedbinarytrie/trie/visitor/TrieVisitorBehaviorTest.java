@@ -217,6 +217,58 @@ class TrieVisitorBehaviorTest {
       final TrieNode result = traverse(root, visitor, other.toArrayUnsafe(), other.size());
       assertThat(result).isSameAs(root);
     }
+
+    @Test
+    void keyEndingExactlyAtBranchPrefixIsNoOp() {
+      // Build a branch whose compressed prefix consumes the entire key bit length when depth is 0
+      // for a shorter lookup key that matches the prefix but has no split bit.
+      final Bytes keyA = Bytes.fromHexString("0x00");
+      final Bytes keyB = Bytes.fromHexString("0xff");
+      final byte[] valueA = Bytes32.repeat((byte) 0x01).toArrayUnsafe();
+      final byte[] valueB = Bytes32.repeat((byte) 0x02).toArrayUnsafe();
+      TrieNode root =
+          traverse(
+              traverse(TrieNode.empty(), new PutVisitor(valueA), keyA.toArrayUnsafe(), keyA.size()),
+              new PutVisitor(valueB),
+              keyB.toArrayUnsafe(),
+              keyB.size());
+      assertThat(root).isInstanceOf(BranchNode.class);
+
+      // Empty key: depth 0, bitCount 0 → RemoveVisitor must return the branch unchanged.
+      final TrieNode unchanged = traverse(root, visitor, new byte[0], 0);
+      assertThat(unchanged).isSameAs(root);
+    }
+
+    @Test
+    void removeOnEmptyChildSideFlattensWithoutTouchingEmptySingleton() {
+      // Key 0x00 → left; right remains EmptyTrieNode. Removing a right-side key flattens.
+      final byte[] key = Bytes.fromHexString("0x00").toArrayUnsafe();
+      final byte[] value = Bytes32.repeat((byte) 0x11).toArrayUnsafe();
+      final LeafNode leaf = new LeafNode(key, key.length, value, false);
+      final BranchNode branch = new BranchNode(new byte[0], 0, leaf, TrieNode.empty(), false);
+
+      final Bytes rightKey = Bytes.fromHexString("0x80");
+      final TrieNode result = traverse(branch, visitor, rightKey.toArrayUnsafe(), rightKey.size());
+      assertThat(result).isInstanceOf(LeafNode.class);
+      assertThat(result.leafValue()).contains(value);
+      assertThat(branch.rightChild()).isSameAs(TrieNode.empty());
+    }
+
+    @Test
+    void removeOnEmptyChildSideWithFlattenDisabledKeepsBranch() {
+      final byte[] key = Bytes.fromHexString("0x00").toArrayUnsafe();
+      final byte[] value = Bytes32.repeat((byte) 0x11).toArrayUnsafe();
+      final BranchNode branch =
+          new BranchNode(
+              new byte[0], 0, new LeafNode(key, key.length, value, false), TrieNode.empty(), false);
+
+      final Bytes rightKey = Bytes.fromHexString("0x80");
+      final TrieNode result =
+          traverse(branch, new RemoveVisitor(false), rightKey.toArrayUnsafe(), rightKey.size());
+      assertThat(result).isSameAs(branch);
+      assertThat(branch.rightChild()).isSameAs(TrieNode.empty());
+      assertThat(branch.leftChild()).isInstanceOf(LeafNode.class);
+    }
   }
 
   /** Storage of dirty nodes via {@link CommitVisitor}; root hash matches {@link BinaryTrie}. */

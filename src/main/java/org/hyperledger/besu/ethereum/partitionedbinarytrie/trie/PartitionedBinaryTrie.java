@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.TrieNodeCodec;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieConstants;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKey;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.PartitionedBinaryTrieFactory;
@@ -34,6 +35,7 @@ import org.hyperledger.besu.ethereum.trie.Proof;
 
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -113,6 +115,9 @@ public class PartitionedBinaryTrie {
 
   private final GetVisitor getVisitor = new GetVisitor();
   private final RemoveVisitor removeVisitor = new RemoveVisitor();
+
+  /** Code-hash reference counts awaiting the next commit ({@code empty} marks a removal). */
+  private final Map<Bytes32, Optional<Bytes>> pendingCodeRefCounts = new LinkedHashMap<>();
 
   protected TrieNode root;
 
@@ -326,6 +331,34 @@ public class PartitionedBinaryTrie {
     remove(key.toArray(), key.size());
   }
 
+  /**
+   * Inserts content-addressed bytecode for {@code codeHash}.
+   *
+   * <p>Reference counting is internal: the first insert writes the code chunks, later inserts only
+   * raise the count. Counts are stored under {@link TrieNodeCodec#codeRefCountKey} and are not trie
+   * leaves, so a repeated insert leaves the root hash unchanged.
+   *
+   * @param codeHash hash identifying the bytecode
+   * @param code bytecode (chunked on first insert)
+   */
+  public void insertCode(final Bytes32 codeHash, final Bytes code) {
+    checkNotNull(codeHash);
+    checkNotNull(code);
+    CodeReferenceCounter.insertCode(this, codeHash, code);
+  }
+
+  /**
+   * Releases one reference to {@code codeHash}.
+   *
+   * <p>Chunks are removed only when the last reference is released.
+   *
+   * @param codeHash hash whose reference is released
+   */
+  public void deleteCode(final Bytes32 codeHash) {
+    checkNotNull(codeHash);
+    CodeReferenceCounter.deleteCode(this, codeHash);
+  }
+
   public Bytes32 getRootHash() {
     return Bytes32.wrap(root.merkleHashBytes());
   }
@@ -340,12 +373,18 @@ public class PartitionedBinaryTrie {
   }
 
   public void commit(final NodeUpdater nodeUpdater, final StoredTrieNodeFactory factory) {
+    flushCodeRefCounts(nodeUpdater);
     root.accept(Bytes.EMPTY, new CommitVisitor(nodeUpdater));
     final Bytes32 rootHash = getRootHash();
-    root =
-        rootHash.equals(TrieConstants.EMPTY_TRIE_ROOT)
-            ? TrieNode.empty()
-            : factory.wrapStored(Bytes.EMPTY, rootHash);
+    if (rootHash.equals(TrieConstants.EMPTY_TRIE_ROOT)) {
+      // Commit never deletes stored nodes, so the root location still holds the pre-removal node.
+      // Overwrite it with the empty-root marker (same as the parallel trie's storeAndResetRoot) so
+      // a reload that only knows the root location resolves to an empty trie.
+      nodeUpdater.store(Bytes.EMPTY, rootHash, root.encode());
+      root = TrieNode.empty();
+    } else {
+      root = factory.wrapStored(Bytes.EMPTY, rootHash);
+    }
   }
 
   /**
@@ -419,6 +458,57 @@ public class PartitionedBinaryTrie {
             handler.onLeaf(Bytes.wrap(key, 0, keyLen), Bytes.wrap(value)) == LeafHandler.State.STOP
                 ? TrieNodeTraversal.LeafHandler.State.STOP
                 : TrieNodeTraversal.LeafHandler.State.CONTINUE);
+  }
+
+  /**
+   * Writes the staged code-hash reference counts through {@code nodeUpdater}, so counts land in the
+   * same batch as the trie nodes they protect.
+   *
+   * @param nodeUpdater storage writer for this commit
+   */
+  protected void flushCodeRefCounts(final NodeUpdater nodeUpdater) {
+    if (pendingCodeRefCounts.isEmpty()) {
+      return;
+    }
+    pendingCodeRefCounts.forEach(
+        (codeHash, value) ->
+            nodeUpdater.store(TrieNodeCodec.codeRefCountKey(codeHash), null, value.orElse(null)));
+    pendingCodeRefCounts.clear();
+  }
+
+  /**
+   * Reads the reference count for {@code codeHash}, preferring counts staged since the last commit.
+   *
+   * @param codeHash code hash to look up
+   * @return encoded count, or empty when the hash is unknown
+   */
+  Optional<Bytes> getCodeRefCount(final Bytes32 codeHash) {
+    final Optional<Bytes> pending = pendingCodeRefCounts.get(codeHash);
+    if (pending != null) {
+      return pending;
+    }
+    return loadCodeRefCount(TrieNodeCodec.codeRefCountKey(codeHash));
+  }
+
+  /** Stages an encoded reference count for the next commit. */
+  void putCodeRefCount(final Bytes32 codeHash, final Bytes value) {
+    pendingCodeRefCounts.put(codeHash, Optional.of(value));
+  }
+
+  /** Stages the removal of a reference count for the next commit. */
+  void removeCodeRefCount(final Bytes32 codeHash) {
+    pendingCodeRefCounts.put(codeHash, Optional.empty());
+  }
+
+  /**
+   * Reads a committed reference count. Storage-backed tries override this; the in-memory trie has
+   * no backing store and only sees counts staged in this session.
+   *
+   * @param key storage key from {@link TrieNodeCodec#codeRefCountKey}
+   * @return encoded count, or empty when absent
+   */
+  protected Optional<Bytes> loadCodeRefCount(final Bytes key) {
+    return Optional.empty();
   }
 
   /** Returns the shared read visitor used by {@link #get(byte[], int)}. */

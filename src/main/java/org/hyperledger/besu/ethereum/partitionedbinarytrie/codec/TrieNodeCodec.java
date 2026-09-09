@@ -16,6 +16,7 @@
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.codec;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 
 /**
  * Binary serialization for persisted trie nodes (tags {@code 0x10} branch / {@code 0x11} leaf).
@@ -31,7 +32,24 @@ public final class TrieNodeCodec {
   /** Serialization tag for leaf nodes. */
   public static final byte LEAF_TAG = 0x11;
 
+  /** Storage key prefix for code-hash reference counts. */
+  public static final byte CODE_REFCOUNT_PREFIX = 0x0F;
+
   private TrieNodeCodec() {}
+
+  /**
+   * Builds the storage key holding the reference count for {@code codeHash}.
+   *
+   * <p>Shares the node key space without any risk of collision: {@link #childLocation} writes one
+   * byte per path bit, so every node location consists of {@code 0x00} and {@code 0x01} bytes only
+   * and no location can start with {@link #CODE_REFCOUNT_PREFIX}.
+   *
+   * @param codeHash 32-byte code hash
+   * @return {@code 0x02 || codeHash}
+   */
+  public static Bytes codeRefCountKey(final Bytes32 codeHash) {
+    return Bytes.concatenate(Bytes.of(CODE_REFCOUNT_PREFIX), codeHash);
+  }
 
   /**
    * Builds the storage location for a branch child by extending {@code parent} with the branch

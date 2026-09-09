@@ -35,6 +35,11 @@ public final class EmptyTrieNode extends TrieNode {
   }
 
   @Override
+  public void markDirty() {
+    // Besu NullNode: empty is never dirty and must stay a clean singleton.
+  }
+
+  @Override
   public byte[] merkleHashBytes() {
     return new byte[32];
   }

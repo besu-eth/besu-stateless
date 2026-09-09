@@ -75,8 +75,14 @@ public class RemoveVisitor implements PathNodeVisitor {
       }
     }
     final int split = depth + prefixLen;
+    if (split >= keyBits) {
+      // Key matched the compressed prefix but has no split bit — nothing to remove below.
+      return branchNode;
+    }
     // Remove from the selected child, then let BranchNode decide whether the branch can be
     // collapsed to preserve the canonical "no branch with a single non-empty child" form.
+    // Empty children are EmptyTrieNode (never StoredTrieNode), so descending a missing side
+    // does not load from disk.
     if (key.bitAt(split) == 0) {
       final TrieNode updatedChild = branchNode.leftChild().accept(this, key, split + 1);
       return branchNode.replaceChild(false, updatedChild, allowFlatten);

@@ -18,14 +18,23 @@ package org.hyperledger.besu.ethereum.partitionedbinarytrie.codec;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.bytes.ByteTrieOps;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieConstants;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKey;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.NodeLoaderMock;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.NodeUpdaterMock;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.StoredTrieNodeFactory;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.BranchNode;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.EmptyTrieNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.LeafNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.TrieNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor.GetVisitor;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor.PutVisitor;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor.RemoveVisitor;
+import org.hyperledger.besu.ethereum.trie.NodeLoader;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -83,6 +92,46 @@ class TrieNodeCodecTest {
   }
 
   @Test
+  void emptyChildHashDecodesToEmptyTrieNodeAndIsNeverLoaded() {
+    // Key 0x00 has bit0=0 → left child. Right child stays empty.
+    final byte[] key = Bytes.fromHexString("0x00").toArrayUnsafe();
+    final byte[] value = Bytes32.repeat((byte) 0x11).toArrayUnsafe();
+    final LeafNode leaf = new LeafNode(key, key.length, value, false);
+    final BranchNode branch = new BranchNode(new byte[0], 0, leaf, TrieNode.empty(), false);
+
+    final NodeUpdaterMock updater = new NodeUpdaterMock();
+    final CountingNodeLoader loader = new CountingNodeLoader(new NodeLoaderMock(updater));
+    final StoredTrieNodeFactory factory = new StoredTrieNodeFactory(loader);
+
+    branch.commit(Bytes.EMPTY, updater);
+    final Bytes32 rootHash = Bytes32.wrap(branch.merkleHashBytes());
+    loader.loads.clear();
+
+    final TrieNode decoded = factory.retrieve(Bytes.EMPTY, rootHash);
+    assertThat(decoded).isInstanceOf(BranchNode.class);
+    final BranchNode decodedBranch = (BranchNode) decoded;
+    assertThat(decodedBranch.rightChild()).isSameAs(TrieNode.empty());
+    assertThat(decodedBranch.leftChild()).isNotInstanceOf(EmptyTrieNode.class);
+
+    final Bytes rightLoc = TrieNodeCodec.childLocation(Bytes.EMPTY, new byte[0], 0, 1);
+    // Key 0x80 has bit0=1 → empty right side. Get must not load that location.
+    decoded.accept(new GetVisitor(), TrieKey.of(Bytes.fromHexString("0x80").toArrayUnsafe(), 1), 0);
+    // Remove on the empty side flattens (Besu replaceChild), but still must not load rightLoc.
+    decoded.accept(
+        new RemoveVisitor(), TrieKey.of(Bytes.fromHexString("0x80").toArrayUnsafe(), 1), 0);
+
+    assertThat(loader.loads).doesNotContain(rightLoc);
+  }
+
+  @Test
+  void wrapStoredEmptyHashReturnsEmptySingleton() {
+    final NodeUpdaterMock updater = new NodeUpdaterMock();
+    final StoredTrieNodeFactory factory = new StoredTrieNodeFactory(new NodeLoaderMock(updater));
+    assertThat(factory.wrapStored(Bytes.EMPTY, TrieConstants.EMPTY_TRIE_ROOT))
+        .isSameAs(TrieNode.empty());
+  }
+
+  @Test
   void childLocationExtendsParentPath() {
     final byte[] prefix = new byte[] {1, 0, 1};
     final Bytes left = TrieNodeCodec.childLocation(Bytes.EMPTY, prefix, 3, 0);
@@ -102,5 +151,21 @@ class TrieNodeCodecTest {
       }
     }
     assertThat(TrieNodeCodec.unpackPrefix(Bytes.wrap(packed), prefixLen)).isEqualTo(prefixBits);
+  }
+
+  /** Records every storage location requested through {@link NodeLoader#getNode}. */
+  private static final class CountingNodeLoader implements NodeLoader {
+    private final NodeLoader delegate;
+    private final List<Bytes> loads = new ArrayList<>();
+
+    CountingNodeLoader(final NodeLoader delegate) {
+      this.delegate = delegate;
+    }
+
+    @Override
+    public Optional<Bytes> getNode(final Bytes location, final Bytes32 hash) {
+      loads.add(location);
+      return delegate.getNode(location, hash);
+    }
   }
 }

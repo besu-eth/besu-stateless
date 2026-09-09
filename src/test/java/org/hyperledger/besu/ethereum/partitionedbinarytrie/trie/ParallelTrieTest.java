@@ -21,9 +21,11 @@ import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieConstants;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.NodeLoaderMock;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.NodeUpdaterMock;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.PartitionedBinaryTrieFactory;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference.BinaryTrie;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Executors;
 
@@ -208,14 +210,111 @@ class ParallelTrieTest {
   void shouldBatchRemoveTwoKeysAfterCommit() {
     parallelTrie.put(createKey(1), createValue(1));
     parallelTrie.put(createKey(2), createValue(2));
+    sequentialTrie.put(createKey(1), createValue(1));
+    sequentialTrie.put(createKey(2), createValue(2));
     parallelTrie.commit(parallelUpdater);
+    sequentialTrie.commit(sequentialUpdater);
 
     parallelTrie.remove(createKey(1));
     parallelTrie.remove(createKey(2));
+    sequentialTrie.remove(createKey(1));
+    sequentialTrie.remove(createKey(2));
     parallelTrie.commit(parallelUpdater);
+    sequentialTrie.commit(sequentialUpdater);
 
     assertThat(parallelTrie.get(createKey(1))).isEmpty();
     assertThat(parallelTrie.get(createKey(2))).isEmpty();
+    assertThat(parallelTrie.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
+    assertThat(parallelTrie.getRootHash()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
+  }
+
+  @Test
+  void flattenRemoveMatchesSequentialAndSpecAfterReload() {
+    // Same deep-prefix layout as TrieFlattenLocationOnlyTest: removing keyB forces flatten.
+    final Bytes keyA = Bytes.fromHexString("0x0000000000000000000000000000000000000001");
+    final Bytes keyB = Bytes.fromHexString("0x0000000000000000000000000000000000000002");
+    final Bytes keyC = Bytes.fromHexString("0x00000000000000000000000000000000000000ff");
+    final Bytes32 valueA = Bytes32.repeat((byte) 0x0A);
+    final Bytes32 valueB = Bytes32.repeat((byte) 0x0B);
+    final Bytes32 valueC = Bytes32.repeat((byte) 0x0C);
+
+    parallelTrie.put(keyA, valueA);
+    parallelTrie.put(keyB, valueB);
+    parallelTrie.put(keyC, valueC);
+    sequentialTrie.put(keyA, valueA);
+    sequentialTrie.put(keyB, valueB);
+    sequentialTrie.put(keyC, valueC);
+    parallelTrie.commit(parallelUpdater);
+    sequentialTrie.commit(sequentialUpdater);
+    assertThat(parallelTrie.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
+
+    parallelTrie.remove(keyB);
+    sequentialTrie.remove(keyB);
+    parallelTrie.commit(parallelUpdater);
+    sequentialTrie.commit(sequentialUpdater);
+
+    final BinaryTrie spec = new BinaryTrie();
+    spec.put(keyA, valueA);
+    spec.put(keyB, valueB);
+    spec.put(keyC, valueC);
+    spec.remove(keyB);
+
+    assertThat(parallelTrie.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
+    assertThat(parallelTrie.getRootHash()).isEqualTo(spec.root());
+
+    final ParallelStoredPartitionedBinaryTrie reloaded =
+        new ParallelStoredPartitionedBinaryTrie(parallelLoader, parallelTrie.getRootHash());
+    assertThat(reloaded.get(keyA)).contains(valueA);
+    assertThat(reloaded.get(keyC)).contains(valueC);
+    assertThat(reloaded.get(keyB)).isEmpty();
+    assertThat(reloaded.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
+  }
+
+  @Test
+  void flattenWithBranchSurvivorMatchesSequentialAfterReload() {
+    final Bytes keyA = keyWithFirstAndLastByte(21, 0xFF, 0x00);
+    final Bytes keyD = keyWithFirstAndLastByte(21, 0x00, 0x01);
+    final Bytes keyE = keyWithFirstAndLastByte(21, 0x00, 0x84);
+    final Bytes keyF = keyWithFirstAndLastByte(21, 0x00, 0xC4);
+    final Bytes32 valueA = Bytes32.repeat((byte) 0x0A);
+    final Bytes32 valueD = Bytes32.repeat((byte) 0x0D);
+    final Bytes32 valueE = Bytes32.repeat((byte) 0x0E);
+    final Bytes32 valueF = Bytes32.repeat((byte) 0x0F);
+
+    for (final var entry :
+        List.of(
+            Map.entry(keyA, valueA),
+            Map.entry(keyD, valueD),
+            Map.entry(keyE, valueE),
+            Map.entry(keyF, valueF))) {
+      parallelTrie.put(entry.getKey(), entry.getValue());
+      sequentialTrie.put(entry.getKey(), entry.getValue());
+    }
+    parallelTrie.commit(parallelUpdater);
+    sequentialTrie.commit(sequentialUpdater);
+
+    parallelTrie.remove(keyD);
+    sequentialTrie.remove(keyD);
+    parallelTrie.commit(parallelUpdater);
+    sequentialTrie.commit(sequentialUpdater);
+
+    final BinaryTrie spec = new BinaryTrie();
+    spec.put(keyA, valueA);
+    spec.put(keyD, valueD);
+    spec.put(keyE, valueE);
+    spec.put(keyF, valueF);
+    spec.remove(keyD);
+
+    assertThat(parallelTrie.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
+    assertThat(parallelTrie.getRootHash()).isEqualTo(spec.root());
+
+    final ParallelStoredPartitionedBinaryTrie reloaded =
+        new ParallelStoredPartitionedBinaryTrie(parallelLoader, parallelTrie.getRootHash());
+    assertThat(reloaded.get(keyA)).contains(valueA);
+    assertThat(reloaded.get(keyE)).contains(valueE);
+    assertThat(reloaded.get(keyF)).contains(valueF);
+    assertThat(reloaded.get(keyD)).isEmpty();
+    assertThat(reloaded.getRootHash()).isEqualTo(spec.root());
   }
 
   @Test
@@ -401,6 +500,14 @@ class ParallelTrieTest {
         (byte) ((seed >> 16) & 0xFF),
         (byte) ((seed >> 8) & 0xFF),
         (byte) (seed & 0xFF));
+  }
+
+  private static Bytes keyWithFirstAndLastByte(
+      final int length, final int firstByte, final int lastByte) {
+    final byte[] key = new byte[length];
+    key[0] = (byte) firstByte;
+    key[length - 1] = (byte) lastByte;
+    return Bytes.wrap(key);
   }
 
   private static Bytes32 createValue(final int value) {
