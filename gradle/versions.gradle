@@ -1,5 +1,5 @@
 /*
- * Copyright Hyperledger Besu Contributors.
+ * Copyright Besu Contributors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -15,39 +15,30 @@
 
 dependencyManagement {
     dependencies {
-        dependency "com.google.guava:guava:33.0.0-jre"
+        // Aligned with Besu platform/build.gradle
+        dependency 'com.google.guava:guava:33.5.0-jre'
+        dependency 'org.bouncycastle:bcprov-jdk18on:1.84'
 
-        dependency 'com.github.ben-manes.caffeine:caffeine:3.1.8'
-
-        dependency 'net.java.dev.jna:jna:5.14.0'
-
-        dependency 'org.assertj:assertj-core:3.25.1'
-
-        dependency 'io.github.crate-crypto:java-verkle-cryptography:0.0.3'
-
-	dependency 'org.bouncycastle:bcprov-jdk18on:1.81'
-
-        dependencySet(group: 'org.hyperledger.besu.internal', version: '24.7.0') {
-            entry 'rlp'
-            entry 'trie'
-        }
-
-        dependencySet(group: 'org.apache.logging.log4j', version: '2.22.1') {
-            entry 'log4j-api'
-            entry 'log4j-core'
-        }
-
-        dependencySet(group: 'io.tmio', version: '2.4.2') {
+        dependencySet(group: 'io.consensys.tuweni', version: '2.7.2') {
             entry 'tuweni-bytes'
-            entry 'tuweni-rlp'
             entry 'tuweni-units'
         }
 
-        dependencySet(group: 'com.google.errorprone', version: '2.28.0') {
+        dependencySet(group: 'org.hyperledger.besu.internal', version: '26.7.1') {
+            entry 'besu-ethereum-trie'
+        }
+
+        dependency 'org.assertj:assertj-core:3.25.1'
+
+        dependencySet(group: 'com.google.errorprone', version: '2.36.0') {
             entry 'error_prone_annotation'
             entry 'error_prone_check_api'
             entry 'error_prone_core'
             entry 'error_prone_test_helpers'
+        }
+
+        dependencySet(group: 'org.junit.platform', version: '1.11.4') {
+            entry 'junit-platform-launcher'
         }
 
         dependencySet(group: 'org.junit.jupiter', version: '5.11.4') {
@@ -56,14 +47,5 @@ dependencyManagement {
             entry 'junit-jupiter-engine'
             entry 'junit-jupiter-params'
         }
-
-        dependencySet(group:'com.fasterxml.jackson.core', version:'2.17.1') {
-            entry 'jackson-databind'
-        }
-
-
-        dependency 'org.mockito:mockito-core:5.14.2'
-        dependency 'org.mockito:mockito-junit-jupiter:5.14.2'
-
     }
 }

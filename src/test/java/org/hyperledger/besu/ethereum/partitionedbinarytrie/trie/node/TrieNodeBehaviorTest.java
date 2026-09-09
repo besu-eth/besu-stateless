@@ -1,0 +1,201 @@
+/*
+ * Copyright Hyperledger Besu Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ */
+package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.TrieNodeTestOps.get;
+import static org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.TrieNodeTestOps.put;
+import static org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.TrieNodeTestOps.remove;
+
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.NodeLoaderMock;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.NodeUpdaterMock;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.StoredTrieNodeFactory;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference.BinaryTrie;
+
+import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+
+/**
+ * Focused tests for concrete {@link TrieNode} implementations.
+ *
+ * <p>Layer: trie node. PBT is non-sparse: {@link LeafNode#remove} returns {@link TrieNode#empty()},
+ * not a zero-valued leaf. Root hashes compared against {@link BinaryTrie}.
+ */
+class TrieNodeBehaviorTest {
+
+  private NodeUpdaterMock updater;
+  private StoredTrieNodeFactory factory;
+
+  @BeforeEach
+  void setUp() {
+    updater = new NodeUpdaterMock();
+    factory = new StoredTrieNodeFactory(new NodeLoaderMock(updater));
+  }
+
+  /** Empty trie sentinel: get is always absent, put creates a leaf, remove is a no-op. */
+  @Nested
+  class EmptyTrieNodeTests {
+
+    @Test
+    void getAlwaysAbsent() {
+      final Bytes key = Bytes.fromHexString("0x01");
+      assertThat(get(TrieNode.empty(), key.toArrayUnsafe(), key.size())).isEmpty();
+    }
+
+    @Test
+    void putCreatesLeaf() {
+      final Bytes key = Bytes.fromHexString("0x01");
+      final byte[] value = Bytes32.repeat((byte) 1).toArrayUnsafe();
+      final TrieNode leaf = put(TrieNode.empty(), key.toArrayUnsafe(), key.size(), value);
+      assertThat(leaf).isInstanceOf(LeafNode.class);
+      assertThat(get(leaf, key.toArrayUnsafe(), key.size())).contains(value);
+    }
+
+    @Test
+    void removeIsNoOp() {
+      assertThat(remove(TrieNode.empty(), new byte[] {1}, 1)).isSameAs(TrieNode.empty());
+    }
+
+    @Test
+    void merkleHashIs32ZeroBytes() {
+      assertThat(TrieNode.empty().merkleHashBytes()).isEqualTo(new byte[32]);
+    }
+  }
+
+  /** In-memory leaf read/write/delete: remove deletes the leaf, put replaces value on same key. */
+  @Nested
+  class LeafNodeTests {
+
+    @Test
+    void removeMatchingKeyDeletesLeaf() {
+      final Bytes key = Bytes.fromHexString("0xbeef");
+      final byte[] value = Bytes32.repeat((byte) 0x55).toArrayUnsafe();
+      final TrieNode leaf = new LeafNode(key.toArrayUnsafe(), key.size(), value, false);
+      assertThat(remove(leaf, key.toArrayUnsafe(), key.size())).isSameAs(TrieNode.empty());
+    }
+
+    @Test
+    void removeNonMatchingKeyIsNoOp() {
+      final Bytes key = Bytes.fromHexString("0xbeef");
+      final Bytes other = Bytes.fromHexString("0xcafe");
+      final byte[] value = Bytes32.repeat((byte) 1).toArrayUnsafe();
+      final TrieNode leaf = new LeafNode(key.toArrayUnsafe(), key.size(), value, false);
+      assertThat(remove(leaf, other.toArrayUnsafe(), other.size())).isSameAs(leaf);
+    }
+
+    @Test
+    void putSameKeyReplacesValue() {
+      final Bytes key = Bytes.fromHexString("0x01");
+      final byte[] v1 = Bytes32.repeat((byte) 1).toArrayUnsafe();
+      final byte[] v2 = Bytes32.repeat((byte) 2).toArrayUnsafe();
+      final TrieNode leaf = new LeafNode(key.toArrayUnsafe(), key.size(), v1, false);
+      final TrieNode updated = put(leaf, key.toArrayUnsafe(), key.size(), v2);
+      assertThat(get(updated, key.toArrayUnsafe(), key.size())).contains(v2);
+    }
+  }
+
+  /** Branch collapse to single child on remove; commit persists branch and children. */
+  @Nested
+  class MemoryBranchNodeTests {
+
+    @Test
+    void collapseToSingleChildOnRemove() {
+      final Bytes keyA = Bytes.fromHexString("0xaaaa");
+      final Bytes keyB = Bytes.fromHexString("0xbbbb");
+      final byte[] valueA = Bytes32.repeat((byte) 0x01).toArrayUnsafe();
+      final byte[] valueB = Bytes32.repeat((byte) 0x02).toArrayUnsafe();
+
+      TrieNode root =
+          put(
+              new LeafNode(keyA.toArrayUnsafe(), keyA.size(), valueA, false),
+              keyB.toArrayUnsafe(),
+              keyB.size(),
+              valueB);
+      assertThat(root).isInstanceOf(BranchNode.class);
+
+      root = remove(root, keyB.toArrayUnsafe(), keyB.size());
+      assertThat(root).isInstanceOf(LeafNode.class);
+      assertThat(get(root, keyA.toArrayUnsafe(), keyA.size())).contains(valueA);
+      assertThat(get(root, keyB.toArrayUnsafe(), keyB.size())).isEmpty();
+    }
+
+    @Test
+    void commitStoresBranchAndChildren() {
+      final Bytes keyA = Bytes.fromHexString("0x10");
+      final Bytes keyB = Bytes.fromHexString("0x20");
+      final byte[] valueA = Bytes32.repeat((byte) 0xAA).toArrayUnsafe();
+      final byte[] valueB = Bytes32.repeat((byte) 0xBB).toArrayUnsafe();
+
+      TrieNode root =
+          put(
+              new LeafNode(keyA.toArrayUnsafe(), keyA.size(), valueA, false),
+              keyB.toArrayUnsafe(),
+              keyB.size(),
+              valueB);
+      root.commit(Bytes.EMPTY, updater);
+      assertThat(updater.storage).isNotEmpty();
+      assertThat(root.isClean()).isTrue();
+    }
+  }
+
+  /**
+   * Lazy-loaded {@link StoredTrieNode} proxy after commit; root hash matches {@link BinaryTrie}.
+   */
+  @Nested
+  class StoredTrieNodeTests {
+
+    @Test
+    void lazyLoadFromFactory() {
+      final Bytes key = Bytes.fromHexString("0xabcd");
+      final byte[] value = Bytes32.repeat((byte) 0x77).toArrayUnsafe();
+      final LeafNode leaf = new LeafNode(key.toArrayUnsafe(), key.size(), value, false);
+      leaf.commit(Bytes.EMPTY, updater);
+      final Bytes32 hash = Bytes32.wrap(leaf.merkleHashBytes());
+
+      final StoredTrieNode proxy = new StoredTrieNode(factory, Bytes.EMPTY, hash);
+      assertThat(get(proxy, key.toArrayUnsafe(), key.size())).contains(value);
+      assertThat(proxy.isClean()).isTrue();
+    }
+
+    @Test
+    void markDirtyIsRejected() {
+      final StoredTrieNode proxy =
+          new StoredTrieNode(factory, Bytes.EMPTY, Bytes32.repeat((byte) 0x11));
+      assertThatThrownBy(proxy::markDirty)
+          .isInstanceOf(IllegalStateException.class)
+          .hasMessageContaining("cannot ever be dirty");
+    }
+
+    @Test
+    void rootHashMatchesSpecOracle() {
+      final Bytes key = Bytes.fromHexString("0x0102");
+      final Bytes32 value = Bytes32.repeat((byte) 0x33);
+      final BinaryTrie spec = new BinaryTrie();
+      spec.put(key, value);
+
+      final LeafNode leaf =
+          new LeafNode(key.toArrayUnsafe(), key.size(), value.toArrayUnsafe(), false);
+      leaf.commit(Bytes.EMPTY, updater);
+      final StoredTrieNode proxy =
+          new StoredTrieNode(factory, Bytes.EMPTY, Bytes32.wrap(leaf.merkleHashBytes()));
+      assertThat(Bytes32.wrap(proxy.merkleHashBytes())).isEqualTo(spec.root());
+    }
+  }
+}
