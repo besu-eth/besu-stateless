@@ -20,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.NodeLoaderMock;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.NodeUpdaterMock;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.PartitionedBinaryTrieFactory;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference.BinaryTrie;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -65,6 +66,13 @@ class TrieFlattenLocationOnlyTest {
     trie.commit(nodeUpdater);
     final Bytes32 rootAfterRemove = trie.getRootHash();
 
+    final BinaryTrie spec = new BinaryTrie();
+    spec.put(keyA, valueA);
+    spec.put(keyB, valueB);
+    spec.put(keyC, valueC);
+    spec.remove(keyB);
+    assertThat(rootAfterRemove).isEqualTo(spec.root());
+
     // Fresh trie instance, forcing every node to be re-decoded from location-only storage.
     final StoredPartitionedBinaryTrie reloaded = factory.create(rootAfterRemove);
 
@@ -76,6 +84,7 @@ class TrieFlattenLocationOnlyTest {
         .contains(valueC.toArray());
     assertThat(reloaded.get(keyB.toArray(), keyB.size())).isEmpty();
     assertThat(reloaded.getRootHash()).isEqualTo(rootAfterRemove);
+    assertThat(reloaded.getRootHash()).isEqualTo(spec.root());
     assertThat(rootAfterRemove).isNotEqualTo(rootWithAll);
   }
 
@@ -110,6 +119,14 @@ class TrieFlattenLocationOnlyTest {
     trie.commit(nodeUpdater);
     final Bytes32 rootAfterRemove = trie.getRootHash();
 
+    final BinaryTrie spec = new BinaryTrie();
+    spec.put(keyA, valueA);
+    spec.put(keyD, valueD);
+    spec.put(keyE, valueE);
+    spec.put(keyF, valueF);
+    spec.remove(keyD);
+    assertThat(rootAfterRemove).isEqualTo(spec.root());
+
     // Fresh trie instance, forcing every node to be re-decoded from location-only storage.
     final StoredPartitionedBinaryTrie reloaded = factory.create(rootAfterRemove);
 
@@ -124,6 +141,7 @@ class TrieFlattenLocationOnlyTest {
         .contains(valueF.toArray());
     assertThat(reloaded.get(keyD.toArray(), keyD.size())).isEmpty();
     assertThat(reloaded.getRootHash()).isEqualTo(rootAfterRemove);
+    assertThat(reloaded.getRootHash()).isEqualTo(spec.root());
     assertThat(rootAfterRemove).isNotEqualTo(rootWithAll);
   }
 

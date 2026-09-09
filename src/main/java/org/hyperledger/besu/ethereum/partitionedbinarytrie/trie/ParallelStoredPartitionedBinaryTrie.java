@@ -140,6 +140,11 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
 
   @Override
   public void commit(final NodeUpdater nodeUpdater) {
+    flushCodeRefCounts(nodeUpdater);
+    if (pendingUpdates.isEmpty()) {
+      persistDirtyRoot(nodeUpdater);
+      return;
+    }
     processPendingUpdates(Optional.of(nodeUpdater));
   }
 
@@ -457,6 +462,10 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
   }
 
   private BranchNode buildBranchFromLeaf(final LeafNode leaf, final int depth) {
+    // The new prefix-less branch occupies the leaf's former location, so the leaf itself is
+    // pushed one bit deeper. Storage is location-keyed: if the leaf was loaded clean, commit
+    // would skip it and leave the new location empty (mirrors BranchNode.maybeFlatten).
+    leaf.markDirty();
     final TrieKey key = TrieKey.of(leaf.keyBytes(), leaf.keyLength());
     final int keyBits = key.bitCount();
     final boolean leafGoesLeft = depth >= keyBits || key.bitAt(depth) == 0;
@@ -581,6 +590,19 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
 
     commitOrHashNode(updatedNode, location, maybeCommitCache);
     return updatedNode;
+  }
+
+  /**
+   * Writes dirty nodes after updates were already applied without a {@link NodeUpdater} (for
+   * example by {@link #getRootHash()}). {@link #processPendingUpdates} is a no-op when {@code
+   * pendingUpdates} is empty, so commit would otherwise persist nothing.
+   */
+  private void persistDirtyRoot(final NodeUpdater nodeUpdater) {
+    this.root = loadNode(root);
+    final CommitCache commitCache = new CommitCache();
+    root.accept(Bytes.EMPTY, new CommitVisitor(commitCache));
+    commitCache.flushTo(nodeUpdater);
+    storeAndResetRoot(nodeUpdater);
   }
 
   /** Stores the root under the empty location and resets it to a clean stored proxy. */

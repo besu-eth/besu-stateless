@@ -40,8 +40,9 @@ public class CommitVisitor implements LocationNodeVisitor {
 
   @Override
   public void visit(final Bytes location, final EmptyTrieNode emptyNode) {
-    // Clear any previously committed node bytes at this path (required for location-keyed reload).
-    nodeUpdater.store(location, null, null);
+    // Besu CommitVisitor.visit(NullNode) is a no-op: abandoned locations keep their old bytes and
+    // are simply unreachable, because a parent branch stores the empty hash for that side and
+    // never turns it back into a loadable child.
   }
 
   @Override

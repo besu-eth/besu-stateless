@@ -20,6 +20,9 @@ import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.TrieNode;
 import org.hyperledger.besu.ethereum.trie.NodeLoader;
 import org.hyperledger.besu.ethereum.trie.NodeUpdater;
 
+import java.util.Optional;
+
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
 /**
@@ -56,5 +59,10 @@ public class StoredPartitionedBinaryTrie extends PartitionedBinaryTrie {
 
   public void commit(final NodeUpdater nodeUpdater) {
     super.commit(nodeUpdater, nodeFactory);
+  }
+
+  @Override
+  protected Optional<Bytes> loadCodeRefCount(final Bytes key) {
+    return nodeFactory.retrieveRaw(key);
   }
 }
