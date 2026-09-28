@@ -16,6 +16,7 @@
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKey;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.NodeLoaderMock;
@@ -149,6 +150,58 @@ class TrieVisitorBehaviorTest {
           .contains(valueA);
       assertThat(traverse(root, new GetVisitor(), keyB.toArrayUnsafe(), keyB.size()).leafValue())
           .contains(valueB);
+    }
+  }
+
+  /**
+   * Ascending-key inserts via {@link AscendingCollapsePutVisitor}: left siblings collapse to hash
+   * stubs; out-of-order and duplicate keys are rejected.
+   */
+  @Nested
+  class AscendingCollapsePutVisitorTests {
+
+    @Test
+    void ascendingInsertCollapsesLeftSiblingToStoredStub() {
+      final Bytes keyA = Bytes.fromHexString("0xaaaa");
+      final Bytes keyB = Bytes.fromHexString("0xbbbb");
+      final byte[] valueA = Bytes32.repeat((byte) 0x01).toArrayUnsafe();
+      final byte[] valueB = Bytes32.repeat((byte) 0x02).toArrayUnsafe();
+      final AscendingCollapsePutVisitor putA = new AscendingCollapsePutVisitor(valueA, factory);
+      final AscendingCollapsePutVisitor putB = new AscendingCollapsePutVisitor(valueB, factory);
+
+      TrieNode root = traverse(TrieNode.empty(), putA, keyA.toArrayUnsafe(), keyA.size());
+      root = traverse(root, putB, keyB.toArrayUnsafe(), keyB.size());
+
+      assertThat(root).isInstanceOf(BranchNode.class);
+      final BranchNode branch = (BranchNode) root;
+      assertThat(branch.leftChild()).isInstanceOf(StoredTrieNode.class);
+      assertThat(branch.rightChild()).isInstanceOf(LeafNode.class);
+      assertThat(branch.rightChild().leafValue()).contains(valueB);
+    }
+
+    @Test
+    void descendingInsertIsRejected() {
+      final Bytes keyHigh = Bytes.fromHexString("0xbbbb");
+      final Bytes keyLow = Bytes.fromHexString("0xaaaa");
+      final byte[] value = Bytes32.repeat((byte) 0x01).toArrayUnsafe();
+      final AscendingCollapsePutVisitor visitor = new AscendingCollapsePutVisitor(value, factory);
+
+      final TrieNode root =
+          traverse(TrieNode.empty(), visitor, keyHigh.toArrayUnsafe(), keyHigh.size());
+      assertThatThrownBy(() -> traverse(root, visitor, keyLow.toArrayUnsafe(), keyLow.size()))
+          .isInstanceOf(IllegalArgumentException.class)
+          .hasMessageContaining("ascending");
+    }
+
+    @Test
+    void duplicateKeyIsRejected() {
+      final Bytes key = Bytes.fromHexString("0xabcd");
+      final byte[] value = Bytes32.repeat((byte) 0x01).toArrayUnsafe();
+      final AscendingCollapsePutVisitor visitor = new AscendingCollapsePutVisitor(value, factory);
+      final TrieNode root = traverse(TrieNode.empty(), visitor, key.toArrayUnsafe(), key.size());
+      assertThatThrownBy(() -> traverse(root, visitor, key.toArrayUnsafe(), key.size()))
+          .isInstanceOf(IllegalArgumentException.class)
+          .hasMessageContaining("duplicate");
     }
   }
 

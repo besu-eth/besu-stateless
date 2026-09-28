@@ -143,7 +143,8 @@ class CodeReferenceCountTest {
     trie.commit(nodeUpdater);
 
     final Bytes countKey = TrieNodeCodec.codeRefCountKey(HASH_A);
-    assertThat(countKey).isEqualTo(Bytes.concatenate(Bytes.of((byte) 0x02), HASH_A));
+    assertThat(countKey)
+        .isEqualTo(Bytes.concatenate(Bytes.of(TrieNodeCodec.CODE_REFCOUNT_PREFIX), HASH_A));
     assertThat(nodeUpdater.storage).containsKey(countKey);
     assertThat(CodeRefCountEncoder.refCount(nodeUpdater.storage.get(countKey))).isEqualTo(1);
   }
