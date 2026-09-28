@@ -17,16 +17,31 @@ package org.hyperledger.besu.ethereum.partitionedbinarytrie.codec;
 
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.params.EmbeddingParameters;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 
 /**
  * Packs account basic data (version, code size, nonce, balance) into a 32-byte leaf value per
  * EIP-8297.
+ *
+ * <p>Layout: {@code version (1) || reserved (3) || code_size (4) || nonce (8) || balance (16)}.
  */
 public final class BasicDataEncoder {
 
   private BasicDataEncoder() {}
+
+  /**
+   * Decoded EIP-8297 basic-data leaf fields.
+   *
+   * @param version account basic-data version byte
+   * @param reserved three reserved bytes following the version
+   * @param codeSize contract bytecode length in bytes
+   * @param nonce account transaction count
+   * @param balance account balance (16-byte field as {@link UInt256})
+   */
+  public record BasicData(
+      int version, Bytes reserved, long codeSize, long nonce, UInt256 balance) {}
 
   /**
    * Encodes account basic data for storage at the basic-data header leaf.
@@ -59,5 +74,36 @@ public final class BasicDataEncoder {
       result[16 + i] = balanceIndex >= 0 ? balanceBytes[balanceIndex] : 0;
     }
     return Bytes32.wrap(result);
+  }
+
+  /**
+   * Decodes a 32-byte basic-data leaf value.
+   *
+   * <p>Rejects non-canonical encodings that do not round-trip through {@link #encodeBasicData}
+   * (wrong version, non-zero reserved bytes, or truncated high bits).
+   *
+   * @param encoded 32-byte leaf value
+   * @return decoded fields
+   * @throws IllegalArgumentException if {@code encoded} is not a canonical basic-data leaf
+   */
+  public static BasicData decodeBasicData(final Bytes32 encoded) {
+    final int version = encoded.get(0) & 0xFF;
+    final Bytes reserved = encoded.slice(1, 3);
+    final long codeSize =
+        ((long) (encoded.get(4) & 0xFF) << 24)
+            | ((long) (encoded.get(5) & 0xFF) << 16)
+            | ((long) (encoded.get(6) & 0xFF) << 8)
+            | ((long) (encoded.get(7) & 0xFF));
+    long nonce = 0L;
+    for (int i = 8; i < 16; i++) {
+      nonce = (nonce << 8) | (encoded.get(i) & 0xFF);
+    }
+    final UInt256 balance = UInt256.fromBytes(encoded.slice(16, 16));
+    final Bytes32 roundTrip = encodeBasicData(codeSize, nonce, balance);
+    if (!roundTrip.equals(encoded)) {
+      throw new IllegalArgumentException(
+          "basic-data leaf does not match BasicDataEncoder layout");
+    }
+    return new BasicData(version, reserved, codeSize, nonce, balance);
   }
 }

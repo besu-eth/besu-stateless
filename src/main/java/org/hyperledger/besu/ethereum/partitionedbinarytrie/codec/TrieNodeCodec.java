@@ -45,7 +45,7 @@ public final class TrieNodeCodec {
    * and no location can start with {@link #CODE_REFCOUNT_PREFIX}.
    *
    * @param codeHash 32-byte code hash
-   * @return {@code 0x02 || codeHash}
+   * @return {@code 0x0F || codeHash}
    */
   public static Bytes codeRefCountKey(final Bytes32 codeHash) {
     return Bytes.concatenate(Bytes.of(CODE_REFCOUNT_PREFIX), codeHash);
