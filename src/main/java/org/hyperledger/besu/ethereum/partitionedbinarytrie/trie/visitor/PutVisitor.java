@@ -174,11 +174,11 @@ public class PutVisitor implements PathNodeVisitor {
     // depth: run counts how many bits are still equal below the path already consumed. The first
     // unequal bit becomes the left/right selector for the new branch, while the equal run becomes
     // that branch's compressed prefix.
-    final byte[] otherBits = ByteTrieOps.expandKeyBits(leafNode.keyBytes(), leafNode.keyLength());
+    final byte[] otherKey = leafNode.keyBytes();
     int run = 0;
     while (depth + run < key.bitCount()
         && depth + run < leafNode.keyLength() * 8
-        && key.bitAt(depth + run) == otherBits[depth + run]) {
+        && key.bitAt(depth + run) == ByteTrieOps.bitAt(otherKey, depth + run)) {
       run++;
     }
     if (depth + run >= key.bitCount() || depth + run >= leafNode.keyLength() * 8) {
@@ -186,7 +186,7 @@ public class PutVisitor implements PathNodeVisitor {
       // would make the trie ambiguous and violates EIP-8297's prefix-free key requirement.
       throw new IllegalArgumentException("Insert violates prefix-freedom");
     }
-    final byte[] prefix = Arrays.copyOfRange(key.pathBits(), depth, depth + run);
+    final byte[] prefix = ByteTrieOps.expandBits(key.bytes(), depth, depth + run);
     final TrieNode newLeaf = new LeafNode(key.bytes(), key.length(), value, false);
     final TrieNode oldLeaf =
         new LeafNode(leafNode.keyBytes(), leafNode.keyLength(), leafNode.valueBytes(), false);

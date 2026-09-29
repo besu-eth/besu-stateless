@@ -36,7 +36,7 @@ import org.apache.tuweni.bytes.Bytes;
  * </pre>
  *
  * <p>{@code prefixBits} is expanded in memory ({@code 0} or {@code 1} per element). Callers pass a
- * {@link TrieKey} whose {@link TrieKey#pathBits()} are matched starting at {@code depth}, then
+ * {@link TrieKey} whose bits ({@link TrieKey#bitAt}) are matched starting at {@code depth}, then
  * descend using {@link TrieKey#bitAt(int)} at {@code depth + prefixLen}.
  *
  * <p>On disk ({@link TrieNodeCodec#encodeBranch}), only {@code prefixLen} (in bits) and the packed
@@ -55,6 +55,11 @@ public final class BranchNode extends TrieNode {
 
   private TrieNode left;
   private TrieNode right;
+
+  /**
+   * Cached merkle hash, valid until a child changes. Independent of {@link #isClean()}, which only
+   * tracks persistence: a dirty node keeps its hash across calls until it is mutated again.
+   */
   private byte[] hash;
 
   /**
@@ -89,6 +94,7 @@ public final class BranchNode extends TrieNode {
     } else {
       left = updatedChild;
     }
+    hash = null;
 
     if (updatedChild == TrieNode.empty() && allowFlatten) {
       final TrieNode survivor = goRight ? left : right;
@@ -127,8 +133,14 @@ public final class BranchNode extends TrieNode {
   }
 
   @Override
+  public void markDirty() {
+    super.markDirty();
+    hash = null;
+  }
+
+  @Override
   public byte[] merkleHashBytes() {
-    if (hash == null || !clean) {
+    if (hash == null) {
       hash =
           ByteTrieOps.branchHash(
               prefixBits, prefixLen, left.merkleHashBytes(), right.merkleHashBytes());
@@ -170,9 +182,11 @@ public final class BranchNode extends TrieNode {
 
   public void setLeftChild(final TrieNode left) {
     this.left = left;
+    hash = null;
   }
 
   public void setRightChild(final TrieNode right) {
     this.right = right;
+    hash = null;
   }
 }

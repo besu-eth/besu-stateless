@@ -60,6 +60,31 @@ class TrieOperationsTest {
   }
 
   @Test
+  void cachedRootHashFollowsMutationsBeforeCommit() {
+    // Branch hashes are cached independently of persistence: each mutation must invalidate them.
+    final Bytes a = Bytes.fromHexString("0x00" + "11".repeat(32) + "00");
+    final Bytes b = Bytes.fromHexString("0x00" + "11".repeat(32) + "01");
+    final Bytes c = Bytes.fromHexString("0x00" + "22".repeat(32) + "00");
+    final StoredPartitionedBinaryTrie trie = factory.create();
+    trie.put(a, Bytes32.repeat((byte) 1));
+    trie.put(c, Bytes32.repeat((byte) 1));
+    final Bytes32 before = trie.getRootHash();
+    assertThat(trie.getRootHash()).isEqualTo(before);
+
+    trie.put(b, Bytes32.repeat((byte) 2));
+    final Bytes32 withB = trie.getRootHash();
+    assertThat(withB).isNotEqualTo(before);
+    final StoredPartitionedBinaryTrie fresh = factory.create();
+    fresh.put(a, Bytes32.repeat((byte) 1));
+    fresh.put(b, Bytes32.repeat((byte) 2));
+    fresh.put(c, Bytes32.repeat((byte) 1));
+    assertThat(withB).isEqualTo(fresh.getRootHash());
+
+    trie.remove(b);
+    assertThat(trie.getRootHash()).isEqualTo(before);
+  }
+
+  @Test
   void putCommitAndReload() {
     final Bytes key =
         Bytes.fromHexString("0x00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff");

@@ -242,34 +242,11 @@ public class PartitionedBinaryTrie {
    * @param value 32-byte leaf value
    */
   public void put(final byte[] key, final int keyLen, final byte[] value) {
-    put(key, keyLen, value, 0);
-  }
-
-  /**
-   * Inserts or replaces a path-value pair starting at {@code startDepth}.
-   *
-   * <p>{@code startDepth} is the bit index already consumed by ancestors (0 at the trie root). Use
-   * a non-zero depth when hashing a root child as an ascending subtree so leading split bits are not
-   * re-compressed into this node's prefix.
-   *
-   * @param key byte buffer containing the trie key
-   * @param keyLen number of key bytes to read from {@code key}
-   * @param value 32-byte leaf value
-   * @param startDepth bit depth at which this put begins
-   */
-  public void put(final byte[] key, final int keyLen, final byte[] value, final int startDepth) {
     checkNotNull(key);
     checkNotNull(value);
-    if (startDepth < 0) {
-      throw new IllegalArgumentException("startDepth must be non-negative");
-    }
     validateKey(key, keyLen);
     validateValue(value);
-    final TrieKey trieKey = TrieKey.of(key, keyLen);
-    if (startDepth > trieKey.bitCount()) {
-      throw new IllegalArgumentException("startDepth exceeds key bit length");
-    }
-    root = root.accept(getPutVisitor(value), trieKey, startDepth);
+    root = root.accept(getPutVisitor(value), TrieKey.of(key, keyLen), 0);
   }
 
   /**
@@ -279,20 +256,10 @@ public class PartitionedBinaryTrie {
    * @param value leaf value
    */
   public void put(final Bytes key, final Bytes value) {
-    put(key, value, 0);
-  }
-
-  /**
-   * Inserts or replaces a key-value pair starting at {@code startDepth}.
-   *
-   * @param key variable-length trie key
-   * @param value leaf value
-   * @param startDepth bit depth at which this put begins
-   */
-  public void put(final Bytes key, final Bytes value, final int startDepth) {
     checkNotNull(key);
     checkNotNull(value);
-    put(key.toArray(), key.size(), value.toArray(), startDepth);
+    // Always through the 3-arg overload, which subclasses (e.g. the parallel trie) intercept.
+    put(key.toArray(), key.size(), value.toArray());
   }
 
   /**

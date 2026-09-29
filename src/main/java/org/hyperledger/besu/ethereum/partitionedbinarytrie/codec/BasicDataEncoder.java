@@ -101,8 +101,7 @@ public final class BasicDataEncoder {
     final UInt256 balance = UInt256.fromBytes(encoded.slice(16, 16));
     final Bytes32 roundTrip = encodeBasicData(codeSize, nonce, balance);
     if (!roundTrip.equals(encoded)) {
-      throw new IllegalArgumentException(
-          "basic-data leaf does not match BasicDataEncoder layout");
+      throw new IllegalArgumentException("basic-data leaf does not match BasicDataEncoder layout");
     }
     return new BasicData(version, reserved, codeSize, nonce, balance);
   }

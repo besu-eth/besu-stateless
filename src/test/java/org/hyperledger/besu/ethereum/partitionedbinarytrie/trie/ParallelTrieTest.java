@@ -18,6 +18,7 @@ package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieConstants;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKeyDerivation;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.NodeLoaderMock;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.NodeUpdaterMock;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.PartitionedBinaryTrieFactory;
@@ -77,6 +78,53 @@ class ParallelTrieTest {
     parallelTrie.commit(parallelUpdater);
 
     assertThat(parallelTrie.get(key)).contains(value);
+  }
+
+  @Test
+  void removeThenPutOfTheSameKeyKeepsTheNewValue() {
+    // Regression: put(Bytes, Bytes) used to bypass the pending batch while remove was queued, so
+    // the queued remove erased the newer put at commit.
+    final Bytes key = Bytes.fromHexString("0x00" + "11".repeat(32) + "00");
+    final Bytes other = Bytes.fromHexString("0x00" + "22".repeat(32) + "00");
+    for (final StoredPartitionedBinaryTrie trie : List.of(parallelTrie, sequentialTrie)) {
+      trie.put(key, Bytes32.repeat((byte) 1));
+      trie.put(other, Bytes32.repeat((byte) 1));
+    }
+    parallelTrie.commit(parallelUpdater);
+    sequentialTrie.commit(sequentialUpdater);
+
+    for (final StoredPartitionedBinaryTrie trie : List.of(parallelTrie, sequentialTrie)) {
+      trie.remove(key);
+      trie.put(key, Bytes32.repeat((byte) 2));
+    }
+    parallelTrie.commit(parallelUpdater);
+    sequentialTrie.commit(sequentialUpdater);
+
+    assertThat(parallelTrie.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
+    assertThat(parallelTrie.get(key)).contains(Bytes32.repeat((byte) 2));
+  }
+
+  @Test
+  void deleteThenReinsertOfTheSameCodeKeepsItsChunks() {
+    // Last reference deleted and the same code deployed again in one block: chunks must survive.
+    final Bytes32 codeHash = Bytes32.repeat((byte) 0x0c);
+    final Bytes code = Bytes.fromHexString("0x6001600155");
+    final Bytes firstChunk = TrieKeyDerivation.getTreeKeyForCodeChunk(codeHash, 0);
+    for (final StoredPartitionedBinaryTrie trie : List.of(parallelTrie, sequentialTrie)) {
+      trie.insertCode(codeHash, code);
+    }
+    parallelTrie.commit(parallelUpdater);
+    sequentialTrie.commit(sequentialUpdater);
+
+    for (final StoredPartitionedBinaryTrie trie : List.of(parallelTrie, sequentialTrie)) {
+      trie.deleteCode(codeHash);
+      trie.insertCode(codeHash, code);
+    }
+    parallelTrie.commit(parallelUpdater);
+    sequentialTrie.commit(sequentialUpdater);
+
+    assertThat(parallelTrie.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
+    assertThat(parallelTrie.get(firstChunk)).isPresent();
   }
 
   @Test

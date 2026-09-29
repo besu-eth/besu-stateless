@@ -32,6 +32,8 @@ public final class LeafNode extends TrieNode {
   private final byte[] key;
   private final int keyLen;
   private final byte[] value;
+
+  /** Cached merkle hash; a leaf's key and value never change, and neither does its hash. */
   private byte[] hash;
 
   public LeafNode(final byte[] key, final int keyLen, final byte[] value, final boolean clean) {
@@ -48,7 +50,7 @@ public final class LeafNode extends TrieNode {
 
   @Override
   public byte[] merkleHashBytes() {
-    if (hash == null || !clean) {
+    if (hash == null) {
       hash = ByteTrieOps.leafHash(key, keyLen, value);
     }
     return hash;

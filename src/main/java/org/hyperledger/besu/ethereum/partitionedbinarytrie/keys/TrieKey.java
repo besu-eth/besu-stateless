@@ -18,16 +18,9 @@ package org.hyperledger.besu.ethereum.partitionedbinarytrie.keys;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.bytes.ByteTrieOps;
 
 /**
- * A trie lookup key in both byte and expanded-bit form.
- *
- * <p>The partitioned binary trie uses two views of the same key:
- *
- * <ul>
- *   <li>{@link #bytes()} / {@link #length()} — raw key bytes for leaf comparison, storage, and
- *       hashing
- *   <li>{@link #pathBits()} / {@link #bitCount()} — MSB-first navigation bits ({@code 0} or {@code
- *       1} per element) for branch traversal
- * </ul>
+ * A trie lookup key: raw bytes ({@link #bytes()} / {@link #length()}) for leaf comparison, storage
+ * and hashing, and MSB-first navigation bits ({@link #bitAt} / {@link #bitCount()}) read straight
+ * from those bytes for branch traversal.
  *
  * <p>Create once per get/put/remove via {@link #of(byte[], int)} and pass through path visitors.
  */
@@ -35,23 +28,20 @@ public final class TrieKey {
 
   private final byte[] bytes;
   private final int length;
-  private final byte[] pathBits;
 
-  private TrieKey(final byte[] bytes, final int length, final byte[] pathBits) {
+  private TrieKey(final byte[] bytes, final int length) {
     this.bytes = bytes;
     this.length = length;
-    this.pathBits = pathBits;
   }
 
   /**
-   * Builds a key with both representations; expands path bits once via {@link
-   * ByteTrieOps#expandKeyBitsCopy}.
+   * Wraps {@code key} without copying it.
    *
    * @param key key byte buffer
    * @param keyLen number of valid key bytes in {@code key}
    */
   public static TrieKey of(final byte[] key, final int keyLen) {
-    return new TrieKey(key, keyLen, ByteTrieOps.expandKeyBitsCopy(key, keyLen));
+    return new TrieKey(key, keyLen);
   }
 
   /** Raw key bytes (may be longer than {@link #length()}). */
@@ -64,11 +54,6 @@ public final class TrieKey {
     return length;
   }
 
-  /** Expanded navigation bits ({@code 0} or {@code 1} per element), length {@link #bitCount()}. */
-  public byte[] pathBits() {
-    return pathBits;
-  }
-
   /** Number of navigation bits ({@code length() * 8}). */
   public int bitCount() {
     return length * 8;
@@ -76,6 +61,6 @@ public final class TrieKey {
 
   /** Returns the navigation bit at {@code index} ({@code 0} or {@code 1}). */
   public byte bitAt(final int index) {
-    return pathBits[index];
+    return ByteTrieOps.bitAt(bytes, index);
   }
 }
