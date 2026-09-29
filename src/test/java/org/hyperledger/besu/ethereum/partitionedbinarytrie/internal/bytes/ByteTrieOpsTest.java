@@ -32,25 +32,20 @@ import org.junit.jupiter.api.Test;
 class ByteTrieOpsTest {
 
   @Test
-  void expandKeyBitsMatchesBitUtils() {
+  void bitAtMatchesBitUtils() {
     final Bytes key = Bytes.fromHexString("0xa5f0");
     final byte[] keyBytes = key.toArrayUnsafe();
-    final byte[] bits = ByteTrieOps.expandKeyBits(keyBytes, keyBytes.length);
     final Bytes specBits = BitUtils.bytesToBitList(key);
     for (int i = 0; i < specBits.size(); i++) {
-      assertThat(bits[i]).isEqualTo((byte) BitUtils.bitAt(specBits, i));
+      assertThat(ByteTrieOps.bitAt(keyBytes, i)).isEqualTo((byte) BitUtils.bitAt(specBits, i));
     }
   }
 
   @Test
-  void expandKeyBitsCopyIsIndependentOfThreadLocalBuffer() {
-    final byte[] keyA = Bytes.fromHexString("0x01").toArrayUnsafe();
-    final byte[] keyB = Bytes.fromHexString("0xfe").toArrayUnsafe();
-    final byte[] copyA = ByteTrieOps.expandKeyBitsCopy(keyA, keyA.length);
-    ByteTrieOps.expandKeyBits(keyB, keyB.length);
-    final byte[] copyB = ByteTrieOps.expandKeyBitsCopy(keyB, keyB.length);
-    assertThat(copyA[0]).isEqualTo((byte) 0);
-    assertThat(copyB[0]).isEqualTo((byte) 1);
+  void expandBitsReturnsTheRequestedRange() {
+    final byte[] key = Bytes.fromHexString("0xa5f0").toArrayUnsafe(); // 1010 0101 1111 0000
+    assertThat(ByteTrieOps.expandBits(key, 2, 9)).containsExactly(1, 0, 0, 1, 0, 1, 1);
+    assertThat(ByteTrieOps.expandBits(key, 5, 5)).isEmpty();
   }
 
   @Test

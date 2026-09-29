@@ -42,7 +42,9 @@ class BasicDataEncoderTest {
     assertThat(decoded.codeSize()).isEqualTo(codeSize);
     assertThat(decoded.nonce()).isEqualTo(nonce);
     assertThat(decoded.balance()).isEqualTo(balance);
-    assertThat(BasicDataEncoder.encodeBasicData(decoded.codeSize(), decoded.nonce(), decoded.balance()))
+    assertThat(
+            BasicDataEncoder.encodeBasicData(
+                decoded.codeSize(), decoded.nonce(), decoded.balance()))
         .isEqualTo(encoded);
   }
 

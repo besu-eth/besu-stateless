@@ -18,8 +18,6 @@ package org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.bytes;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.hash.Blake3Hasher;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieConstants;
 
-import java.util.Arrays;
-
 /**
  * Hot-path trie operations on primitive byte arrays.
  *
@@ -28,48 +26,23 @@ import java.util.Arrays;
  */
 public final class ByteTrieOps {
 
-  private static final ThreadLocal<byte[]> BIT_BUFFER =
-      ThreadLocal.withInitial(() -> new byte[TrieConstants.MAX_KEY_LENGTH * 8]);
-
   private static final ThreadLocal<byte[]> PREFIX_PACK_BUFFER =
       ThreadLocal.withInitial(() -> new byte[(1 << 16) / 8 + 2]);
 
   private ByteTrieOps() {}
 
-  /**
-   * Expands key bytes into a thread-local bit buffer (one byte per bit, MSB first).
-   *
-   * <p>Callers must not retain the returned array across other {@code ByteTrieOps} calls on the
-   * same thread. Use {@link #expandKeyBitsCopy} when two expanded keys are needed at once.
-   */
-  public static byte[] expandKeyBits(final byte[] key, final int keyLen) {
-    final byte[] bits = BIT_BUFFER.get();
-    final int bitCount = keyLen * 8;
-    for (int byteIndex = 0; byteIndex < keyLen; byteIndex++) {
-      final int value = key[byteIndex] & 0xFF;
-      final int base = byteIndex * 8;
-      bits[base] = (byte) ((value >> 7) & 1);
-      bits[base + 1] = (byte) ((value >> 6) & 1);
-      bits[base + 2] = (byte) ((value >> 5) & 1);
-      bits[base + 3] = (byte) ((value >> 4) & 1);
-      bits[base + 4] = (byte) ((value >> 3) & 1);
-      bits[base + 5] = (byte) ((value >> 2) & 1);
-      bits[base + 6] = (byte) ((value >> 1) & 1);
-      bits[base + 7] = (byte) (value & 1);
-    }
-    // Shorter keys reuse the thread-local buffer; clear stale bits from prior longer keys.
-    Arrays.fill(bits, bitCount, bits.length, (byte) 0);
-    return bits;
+  /** Bit {@code index} of {@code key}, MSB first ({@code 0} or {@code 1}). */
+  public static byte bitAt(final byte[] key, final int index) {
+    return (byte) ((key[index >>> 3] >>> (7 - (index & 7))) & 1);
   }
 
-  /**
-   * Returns an owned copy of {@link #expandKeyBits} for callers that need two expansions at once.
-   */
-  public static byte[] expandKeyBitsCopy(final byte[] key, final int keyLen) {
-    final byte[] bits = expandKeyBits(key, keyLen);
-    final byte[] copy = new byte[keyLen * 8];
-    System.arraycopy(bits, 0, copy, 0, copy.length);
-    return copy;
+  /** Expands bits {@code [from, to)} of {@code key} into one byte per bit (branch prefix form). */
+  public static byte[] expandBits(final byte[] key, final int from, final int to) {
+    final byte[] bits = new byte[to - from];
+    for (int i = from; i < to; i++) {
+      bits[i - from] = bitAt(key, i);
+    }
+    return bits;
   }
 
   /** Writes a branch-prefix encoding into {@code out} and returns the number of bytes written. */

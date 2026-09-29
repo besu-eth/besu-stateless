@@ -15,84 +15,62 @@
  */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie;
 
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKey;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.StoredTrieNodeFactory;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.BranchNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.EmptyTrieNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.TrieNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor.AscendingCollapsePutVisitor;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor.PathNodeVisitor;
-import org.hyperledger.besu.ethereum.trie.NodeLoader;
 
+import java.util.Arrays;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
 /**
- * Streaming partitioned binary trie for strictly ascending bulk inserts.
+ * Streaming partitioned binary trie for strictly ascending bulk inserts, with no storage.
  *
- * <p>Thin wrapper over {@link StoredPartitionedBinaryTrie} that inserts with {@link
- * AscendingCollapsePutVisitor} so completed left siblings collapse to in-memory {@link
- * org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.StoredTrieNode} hash stubs (no DB).
- * Keys MUST arrive in strictly ascending key order.
+ * <p>Each insert runs {@link AscendingCollapsePutVisitor} on the root: once the path turns right,
+ * the completed left subtree is hashed and replaced by a hash-only stub. Live memory is therefore
+ * the rightmost path, O(depth).
  *
- * <p>On {@link #rootHash()}, only the two children of the root branch are hashed in parallel —
- * nothing deeper.
- *
- * <p>Public API: {@link #insert}, {@link #insertCount}, {@link #rootHash} (seals the trie).
+ * <p>Keys MUST arrive in strictly ascending unsigned byte-lexicographic order, the order in which
+ * the trie descends bit by bit.
  */
 public final class AscendingCollapseBinaryTrie {
 
-  private static final NodeLoader EMPTY_LOADER = (location, hash) -> Optional.empty();
+  /** Builds the hash-only stubs; they are never loaded, so there is nothing to load them from. */
+  private final StoredTrieNodeFactory stubs =
+      new StoredTrieNodeFactory((location, hash) -> Optional.empty());
 
-  private final int startDepth;
-  private final StoredTrieNodeFactory collapseFactory = new StoredTrieNodeFactory(EMPTY_LOADER);
-  private final StoredPartitionedBinaryTrie trie =
-      new StoredPartitionedBinaryTrie(EMPTY_LOADER, Bytes32.ZERO) {
-        @Override
-        protected PathNodeVisitor getPutVisitor(final byte[] value) {
-          return new AscendingCollapsePutVisitor(value, collapseFactory);
-        }
-      };
-  private Bytes lastKey;
+  private TrieNode root = TrieNode.empty();
+  private byte[] lastKey;
   private long insertCount;
   private boolean sealed;
-
-  /** Ascending builder starting at bit depth 0 (full trie / isolated root). */
-  public AscendingCollapseBinaryTrie() {
-    this(0);
-  }
-
-  /**
-   * Ascending builder starting at {@code startDepth}.
-   *
-   * @param startDepth bit index already consumed by ancestors; child of a root split at bit {@code
-   *     S} uses {@code startDepth = S + 1}
-   */
-  public AscendingCollapseBinaryTrie(final int startDepth) {
-    if (startDepth < 0) {
-      throw new IllegalArgumentException("startDepth must be non-negative");
-    }
-    this.startDepth = startDepth;
-  }
 
   /**
    * Inserts {@code (key, value)} in strictly ascending key order.
    *
-   * @throws IllegalArgumentException if order is violated
+   * @throws IllegalArgumentException if order is violated, or the key or value is malformed
    * @throws IllegalStateException if {@link #rootHash()} has already been called
    */
   public void insert(final Bytes key, final Bytes value) {
     if (sealed) {
       throw new IllegalStateException("ascending binary trie already sealed");
     }
-    if (lastKey != null && key.compareTo(lastKey) <= 0) {
+    final byte[] keyBytes = key.toArray();
+    final byte[] valueBytes = value.toArray();
+    PartitionedBinaryTrie.validateKey(keyBytes, keyBytes.length);
+    PartitionedBinaryTrie.validateValue(valueBytes);
+    if (lastKey != null && Arrays.compareUnsigned(keyBytes, lastKey) <= 0) {
       throw new IllegalArgumentException("keys must be inserted in strictly ascending order");
     }
-    lastKey = key;
+    root =
+        root.accept(
+            new AscendingCollapsePutVisitor(valueBytes, stubs),
+            TrieKey.of(keyBytes, keyBytes.length),
+            0);
+    lastKey = keyBytes;
     insertCount++;
-    trie.put(key, value, startDepth);
   }
 
   /** Returns the number of successful {@link #insert} calls since construction. */
@@ -100,42 +78,15 @@ public final class AscendingCollapseBinaryTrie {
     return insertCount;
   }
 
-  /** Bit depth at which inserts begin. */
-  public int startDepth() {
-    return startDepth;
-  }
-
   /**
    * Seals the trie and returns its root hash. Further {@link #insert} calls are rejected.
    *
-   * <p>Hashes the root branch's left and right children in parallel (one level only), then hashes
-   * the root.
+   * <p>Only the rightmost path is still unhashed at this point, so this is O(depth).
    *
-   * @return merkle root of the sealed trie
+   * @return merkle root of the sealed trie (32 zero bytes when empty)
    */
   public Bytes32 rootHash() {
     sealed = true;
-    prehashRootBranchChildren(trie.root);
-    return trie.getRootHash();
-  }
-
-  /**
-   * Pre-computes hashes of the root branch's two children concurrently. Deeper nodes are left to
-   * the normal recursive {@link TrieNode#merkleHashBytes()}.
-   */
-  private static void prehashRootBranchChildren(final TrieNode root) {
-    if (!(root instanceof BranchNode branch)) {
-      return;
-    }
-    final TrieNode left = branch.leftChild();
-    final TrieNode right = branch.rightChild();
-    if (left instanceof EmptyTrieNode && right instanceof EmptyTrieNode) {
-      return;
-    }
-    final CompletableFuture<byte[]> leftHash = CompletableFuture.supplyAsync(left::merkleHashBytes);
-    final CompletableFuture<byte[]> rightHash =
-        CompletableFuture.supplyAsync(right::merkleHashBytes);
-    leftHash.join();
-    rightHash.join();
+    return Bytes32.wrap(root.merkleHashBytes());
   }
 }

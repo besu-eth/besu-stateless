@@ -17,20 +17,24 @@ package org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.hash;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
+import org.bouncycastle.crypto.Digest;
 import org.bouncycastle.crypto.digests.Blake3Digest;
 
 /**
- * Thread-local BLAKE3 hasher to avoid per-hash digest allocation.
+ * Thread-local BLAKE3 hashing (32-byte output) for trie keys and nodes.
  *
- * <p>Each overload concatenates a domain-separating {@code tag} byte with the provided byte slices
- * before hashing. Not part of the public API.
+ * <p>Inputs of at most one chunk, which is every PBT key and node, go through {@link
+ * Blake3SingleChunk}; anything longer (a branch with a very long prefix) falls back to
+ * BouncyCastle. The tagged overloads hash {@code tag} followed by the given slices. Not part of the
+ * public API.
  */
 public final class Blake3Hasher {
 
-  private static final ThreadLocal<Blake3Digest> DIGEST =
-      ThreadLocal.withInitial(() -> new Blake3Digest(256));
+  private static final ThreadLocal<Blake3SingleChunk> SINGLE_CHUNK =
+      ThreadLocal.withInitial(Blake3SingleChunk::new);
 
-  private static final ThreadLocal<byte[]> OUTPUT = ThreadLocal.withInitial(() -> new byte[32]);
+  private static final ThreadLocal<Blake3Digest> GENERAL =
+      ThreadLocal.withInitial(() -> new Blake3Digest(256));
 
   private Blake3Hasher() {}
 
@@ -40,25 +44,14 @@ public final class Blake3Hasher {
     return Bytes32.wrap(hashRaw(bytes, 0, bytes.length));
   }
 
+  /** Hash {@code data[off, off + len)}, returning an owned 32-byte digest. */
   public static byte[] hashRaw(final byte[] data, final int off, final int len) {
-    final Blake3Digest digest = DIGEST.get();
-    digest.reset();
+    final Digest digest = digestFor(len);
     digest.update(data, off, len);
-    final byte[] out = OUTPUT.get();
-    digest.doFinal(out, 0);
-    return out.clone();
+    return finish(digest);
   }
 
-  public static byte[] hash(final byte tag, final byte[] a, final int aOff, final int aLen) {
-    final Blake3Digest digest = DIGEST.get();
-    digest.reset();
-    digest.update(tag);
-    digest.update(a, aOff, aLen);
-    final byte[] out = OUTPUT.get();
-    digest.doFinal(out, 0);
-    return out.clone();
-  }
-
+  /** Hash {@code tag || a || b}. */
   public static byte[] hash(
       final byte tag,
       final byte[] a,
@@ -67,16 +60,14 @@ public final class Blake3Hasher {
       final byte[] b,
       final int bOff,
       final int bLen) {
-    final Blake3Digest digest = DIGEST.get();
-    digest.reset();
+    final Digest digest = digestFor(1 + aLen + bLen);
     digest.update(tag);
     digest.update(a, aOff, aLen);
     digest.update(b, bOff, bLen);
-    final byte[] out = OUTPUT.get();
-    digest.doFinal(out, 0);
-    return out.clone();
+    return finish(digest);
   }
 
+  /** Hash {@code tag || a || b || c}. */
   public static byte[] hash(
       final byte tag,
       final byte[] a,
@@ -88,40 +79,24 @@ public final class Blake3Hasher {
       final byte[] c,
       final int cOff,
       final int cLen) {
-    final Blake3Digest digest = DIGEST.get();
-    digest.reset();
+    final Digest digest = digestFor(1 + aLen + bLen + cLen);
     digest.update(tag);
     digest.update(a, aOff, aLen);
     digest.update(b, bOff, bLen);
     digest.update(c, cOff, cLen);
-    final byte[] out = OUTPUT.get();
-    digest.doFinal(out, 0);
-    return out.clone();
+    return finish(digest);
   }
 
-  public static byte[] hash(
-      final byte tag,
-      final byte[] a,
-      final int aOff,
-      final int aLen,
-      final byte[] b,
-      final int bOff,
-      final int bLen,
-      final byte[] c,
-      final int cOff,
-      final int cLen,
-      final byte[] d,
-      final int dOff,
-      final int dLen) {
-    final Blake3Digest digest = DIGEST.get();
+  private static Digest digestFor(final int inputLength) {
+    final Digest digest =
+        inputLength <= Blake3SingleChunk.MAX_INPUT ? SINGLE_CHUNK.get() : GENERAL.get();
     digest.reset();
-    digest.update(tag);
-    digest.update(a, aOff, aLen);
-    digest.update(b, bOff, bLen);
-    digest.update(c, cOff, cLen);
-    digest.update(d, dOff, dLen);
-    final byte[] out = OUTPUT.get();
+    return digest;
+  }
+
+  private static byte[] finish(final Digest digest) {
+    final byte[] out = new byte[32];
     digest.doFinal(out, 0);
-    return out.clone();
+    return out;
   }
 }
