@@ -16,7 +16,6 @@
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.hash;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieConstants;
 
@@ -77,50 +76,27 @@ class Blake3HasherTest {
   }
 
   @Test
-  void singleChunkMatchesOfficialVectorForEmptyInput() {
-    final byte[] out = new byte[32];
-    new Blake3SingleChunk().doFinal(out, 0);
-    assertThat(Bytes.wrap(out))
+  void matchesTheOfficialVectorForEmptyInput() {
+    assertThat(Bytes.wrap(Blake3Hasher.hashRaw(new byte[0], 0, 0)))
         .isEqualTo(
             Bytes.fromHexString(
                 "0xaf1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262"));
   }
 
   @Test
-  void singleChunkMatchesBouncyCastleForEveryLengthAndSplit() {
+  void matchesBouncyCastleForEveryLengthAcrossChunks() {
     final Random random = new Random(3);
-    final Blake3SingleChunk fast = new Blake3SingleChunk();
-    for (int len = 0; len <= Blake3SingleChunk.MAX_INPUT; len++) {
+    for (int len = 0; len <= 2048; len++) {
       final byte[] data = new byte[len];
       random.nextBytes(data);
-      // Feed the same bytes as a random mix of single bytes and slices, reusing the instance.
-      int off = 0;
-      while (off < len) {
-        if (random.nextInt(4) == 0) {
-          fast.update(data[off++]);
-        } else {
-          final int n = Math.min(len - off, 1 + random.nextInt(100));
-          fast.update(data, off, n);
-          off += n;
-        }
-      }
-      final byte[] out = new byte[32];
-      fast.doFinal(out, 0);
-      assertThat(Bytes32.wrap(out))
+      assertThat(Bytes32.wrap(Blake3Hasher.hashRaw(data, 0, len)))
           .as("length %d", len)
           .isEqualTo(referenceBlake3(Bytes.wrap(data)));
     }
   }
 
   @Test
-  void singleChunkRejectsInputBeyondOneChunk() {
-    final Blake3SingleChunk fast = new Blake3SingleChunk();
-    fast.update(new byte[Blake3SingleChunk.MAX_INPUT], 0, Blake3SingleChunk.MAX_INPUT);
-    assertThatThrownBy(() -> fast.update((byte) 0)).isInstanceOf(IllegalStateException.class);
-  }
-
-  @Test
-  void hasherFallsBackBeyondOneChunk() {
+  void matchesBouncyCastleForLongInputs() {
     final Random random = new Random(5);
     for (final int len : new int[] {1023, 1024, 1025, 4096, 10_000}) {
       final byte[] data = new byte[len];
@@ -129,7 +105,7 @@ class Blake3HasherTest {
           .as("length %d", len)
           .isEqualTo(referenceBlake3(Bytes.wrap(data)));
     }
-    // Tagged overload crossing the limit through its slices.
+    // Tagged overload with a long slice.
     final byte[] big = new byte[1100];
     random.nextBytes(big);
     final byte[] expected = new byte[1 + big.length + 32 + 32];

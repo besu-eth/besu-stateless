@@ -30,6 +30,7 @@ test {
 
 dependencies {
   implementation 'com.google.guava:guava'
+  implementation 'commons-codec:commons-codec'
   implementation 'io.consensys.tuweni:tuweni-bytes'
   implementation 'io.consensys.tuweni:tuweni-units'
   implementation 'org.bouncycastle:bcprov-jdk18on'

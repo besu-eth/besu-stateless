@@ -63,7 +63,8 @@ public abstract class TrieNode {
   /**
    * Returns the 32-byte leaf value when this node is a matching leaf; empty otherwise.
    *
-   * <p>Used to extract results from {@link GetVisitor}.
+   * <p>Used to extract results from {@link
+   * org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor.GetVisitor}.
    */
   public Optional<byte[]> leafValue() {
     return Optional.empty();
