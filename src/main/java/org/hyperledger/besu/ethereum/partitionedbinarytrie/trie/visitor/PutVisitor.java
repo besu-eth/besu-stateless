@@ -62,7 +62,7 @@ public class PutVisitor implements PathNodeVisitor {
     // The key is absent. The merger can create a first leaf or keep the subtree empty.
     return merger
         .apply(Optional.empty())
-        .<TrieNode>map(value -> new LeafNode(key.bytes(), key.length(), value, false))
+        .map(value -> newNode(key, value, depth))
         .orElseGet(EmptyTrieNode::instance);
   }
 
@@ -108,7 +108,7 @@ public class PutVisitor implements PathNodeVisitor {
       // The key consumed the compressed prefix, so descend through the next key bit.
       final int split = depth + prefixLen;
       final int childBit = key.bitAt(split);
-      beforeDescendChild(branchNode, childBit);
+      beforeDescendChild(branchNode, key, split, childBit);
       if (childBit == 0) {
         branchNode.setLeftChild(branchNode.leftChild().accept(this, key, split + 1));
       } else {
@@ -137,9 +137,12 @@ public class PutVisitor implements PathNodeVisitor {
    * ({@code 0} = left, {@code 1} = right) before the recursive visit.
    *
    * @param branchNode branch whose child will be updated next
+   * @param key key being inserted
+   * @param split bit index of the branch's left/right split ({@code depth + prefixLength})
    * @param childBit child selector bit ({@code 0} left, {@code 1} right)
    */
-  protected void beforeDescendChild(final BranchNode branchNode, final int childBit) {
+  protected void beforeDescendChild(
+      final BranchNode branchNode, final TrieKey key, final int split, final int childBit) {
     // no-op
   }
 
@@ -150,9 +153,13 @@ public class PutVisitor implements PathNodeVisitor {
    * sibling — for example replacing a completed left subtree with a hash stub.
    *
    * @param sibling existing subtree attached as the opposite child of the new leaf
+   * @param key key being inserted
+   * @param split bit index of the new branch's left/right split
+   * @param siblingBit side of the sibling in the new branch ({@code 0} left, {@code 1} right)
    * @return node to store in that sibling slot
    */
-  protected TrieNode mapAttachedSibling(final TrieNode sibling) {
+  protected TrieNode mapAttachedSibling(
+      final TrieNode sibling, final TrieKey key, final int split, final int siblingBit) {
     return sibling;
   }
 
@@ -166,6 +173,22 @@ public class PutVisitor implements PathNodeVisitor {
    */
   protected void validateSplitDirection(final int newLeafBit) {
     // no-op
+  }
+
+  /**
+   * Node placed for an absent key at bit {@code depth} (the root, an empty child, or the new side
+   * of a split).
+   *
+   * <p>Stock put creates the leaf. Subclasses may place a prebuilt subtree whose first key is
+   * {@code key}.
+   *
+   * @param key key being inserted
+   * @param value its 32-byte value
+   * @param depth bit depth at which the node is attached
+   * @return node to attach
+   */
+  protected TrieNode newNode(final TrieKey key, final byte[] value, final int depth) {
+    return new LeafNode(key.bytes(), key.length(), value, false);
   }
 
   private TrieNode splitLeaf(
@@ -187,15 +210,17 @@ public class PutVisitor implements PathNodeVisitor {
       throw new IllegalArgumentException("Insert violates prefix-freedom");
     }
     final byte[] prefix = ByteTrieOps.expandBits(key.bytes(), depth, depth + run);
-    final TrieNode newLeaf = new LeafNode(key.bytes(), key.length(), value, false);
+    final TrieNode newLeaf = newNode(key, value, depth + run + 1);
     final TrieNode oldLeaf =
         new LeafNode(leafNode.keyBytes(), leafNode.keyLength(), leafNode.valueBytes(), false);
     final int newLeafBit = key.bitAt(depth + run);
     validateSplitDirection(newLeafBit);
     if (newLeafBit == 0) {
-      return new BranchNode(prefix, run, newLeaf, mapAttachedSibling(oldLeaf), false);
+      return new BranchNode(
+          prefix, run, newLeaf, mapAttachedSibling(oldLeaf, key, depth + run, 1), false);
     }
-    return new BranchNode(prefix, run, mapAttachedSibling(oldLeaf), newLeaf, false);
+    return new BranchNode(
+        prefix, run, mapAttachedSibling(oldLeaf, key, depth + run, 0), newLeaf, false);
   }
 
   private TrieNode splitBranchPrefix(
@@ -218,14 +243,22 @@ public class PutVisitor implements PathNodeVisitor {
             branchNode.leftChild(),
             branchNode.rightChild(),
             false);
-    final TrieNode leaf = new LeafNode(key.bytes(), key.length(), value, false);
+    final TrieNode leaf = newNode(key, value, depth + matched + 1);
     final int newLeafBit = key.bitAt(depth + matched);
     validateSplitDirection(newLeafBit);
     if (newLeafBit == 0) {
       return new BranchNode(
-          Arrays.copyOf(prefixBits, matched), matched, leaf, mapAttachedSibling(survivor), false);
+          Arrays.copyOf(prefixBits, matched),
+          matched,
+          leaf,
+          mapAttachedSibling(survivor, key, depth + matched, 1),
+          false);
     }
     return new BranchNode(
-        Arrays.copyOf(prefixBits, matched), matched, mapAttachedSibling(survivor), leaf, false);
+        Arrays.copyOf(prefixBits, matched),
+        matched,
+        mapAttachedSibling(survivor, key, depth + matched, 0),
+        leaf,
+        false);
   }
 }

@@ -80,7 +80,8 @@ public final class StoredTrieNode extends TrieNode {
 
   @Override
   public TrieNode accept(final PathNodeVisitor visitor, final TrieKey key, final int depth) {
-    return load().accept(visitor, key, depth);
+    // The visitor decides: stock visitors load the node, a bulk loader rejects its stubs.
+    return visitor.visit(this, key, depth);
   }
 
   @Override

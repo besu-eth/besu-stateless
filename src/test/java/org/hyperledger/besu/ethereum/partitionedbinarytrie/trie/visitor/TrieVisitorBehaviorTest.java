@@ -29,6 +29,8 @@ import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.StoredTrieN
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.TrieNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference.BinaryTrie;
 
+import java.util.Optional;
+
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
@@ -166,8 +168,10 @@ class TrieVisitorBehaviorTest {
       final Bytes keyB = Bytes.fromHexString("0xbbbb");
       final byte[] valueA = Bytes32.repeat((byte) 0x01).toArrayUnsafe();
       final byte[] valueB = Bytes32.repeat((byte) 0x02).toArrayUnsafe();
-      final AscendingCollapsePutVisitor putA = new AscendingCollapsePutVisitor(valueA, factory);
-      final AscendingCollapsePutVisitor putB = new AscendingCollapsePutVisitor(valueB, factory);
+      final AscendingCollapsePutVisitor putA =
+          new AscendingCollapsePutVisitor(valueA, factory, Optional.empty());
+      final AscendingCollapsePutVisitor putB =
+          new AscendingCollapsePutVisitor(valueB, factory, Optional.empty());
 
       TrieNode root = traverse(TrieNode.empty(), putA, keyA.toArrayUnsafe(), keyA.size());
       root = traverse(root, putB, keyB.toArrayUnsafe(), keyB.size());
@@ -184,7 +188,8 @@ class TrieVisitorBehaviorTest {
       final Bytes keyHigh = Bytes.fromHexString("0xbbbb");
       final Bytes keyLow = Bytes.fromHexString("0xaaaa");
       final byte[] value = Bytes32.repeat((byte) 0x01).toArrayUnsafe();
-      final AscendingCollapsePutVisitor visitor = new AscendingCollapsePutVisitor(value, factory);
+      final AscendingCollapsePutVisitor visitor =
+          new AscendingCollapsePutVisitor(value, factory, Optional.empty());
 
       final TrieNode root =
           traverse(TrieNode.empty(), visitor, keyHigh.toArrayUnsafe(), keyHigh.size());
@@ -197,7 +202,8 @@ class TrieVisitorBehaviorTest {
     void duplicateKeyIsRejected() {
       final Bytes key = Bytes.fromHexString("0xabcd");
       final byte[] value = Bytes32.repeat((byte) 0x01).toArrayUnsafe();
-      final AscendingCollapsePutVisitor visitor = new AscendingCollapsePutVisitor(value, factory);
+      final AscendingCollapsePutVisitor visitor =
+          new AscendingCollapsePutVisitor(value, factory, Optional.empty());
       final TrieNode root = traverse(TrieNode.empty(), visitor, key.toArrayUnsafe(), key.size());
       assertThatThrownBy(() -> traverse(root, visitor, key.toArrayUnsafe(), key.size()))
           .isInstanceOf(IllegalArgumentException.class)

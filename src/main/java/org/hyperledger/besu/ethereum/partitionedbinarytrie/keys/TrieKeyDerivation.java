@@ -85,7 +85,11 @@ public final class TrieKeyDerivation {
    * @return 34-byte account key
    */
   public static Bytes getTreeKeyForHeader(final Bytes32 address, final int subIndex) {
-    final Bytes key = getTreeKey(EmbeddingParameters.ACCOUNT_ZONE, keyHash(address), subIndex);
+    return headerKey(keyHash(address), subIndex);
+  }
+
+  private static Bytes headerKey(final Bytes32 addressKeyHash, final int subIndex) {
+    final Bytes key = getTreeKey(EmbeddingParameters.ACCOUNT_ZONE, addressKeyHash, subIndex);
     if (key.size() != EmbeddingParameters.ACCOUNT_KEY_LENGTH) {
       throw new IllegalStateException("Unexpected account key length: " + key.size());
     }
@@ -133,9 +137,13 @@ public final class TrieKeyDerivation {
    * @return 64-byte tree position
    */
   public static Bytes storageTreePosition(final Bytes32 address, final UInt256 treeIndex) {
-    final Bytes prefix = keyHash(address);
+    return storageTreePosition(address, keyHash(address), treeIndex);
+  }
+
+  private static Bytes storageTreePosition(
+      final Bytes32 address, final Bytes32 addressKeyHash, final UInt256 treeIndex) {
     final Bytes suffix = keyHash(Bytes.concatenate(address, Bytes32.leftPad(treeIndex)));
-    return Bytes.concatenate(prefix, suffix);
+    return Bytes.concatenate(addressKeyHash, suffix);
   }
 
   /**
@@ -149,9 +157,24 @@ public final class TrieKeyDerivation {
    * @return storage tree key (34 or 66 bytes depending on zone)
    */
   public static Bytes getTreeKeyForStorageSlot(final Bytes32 address, final UInt256 storageKey) {
+    return getTreeKeyForStorageSlot(address, keyHash(address), storageKey);
+  }
+
+  /**
+   * Same as {@link #getTreeKeyForStorageSlot(Bytes32, UInt256)} with the account's {@code
+   * keyHash(address)} already computed, so that deriving many slots of one account hashes the
+   * address once.
+   *
+   * @param address 32-byte account address
+   * @param addressKeyHash {@code keyHash(address)}
+   * @param storageKey storage slot index
+   * @return storage tree key (34 or 66 bytes depending on zone)
+   */
+  public static Bytes getTreeKeyForStorageSlot(
+      final Bytes32 address, final Bytes32 addressKeyHash, final UInt256 storageKey) {
     if (storageKey.compareTo(UInt256.valueOf(EmbeddingParameters.HEADER_STORAGE_SLOTS)) < 0) {
-      return getTreeKeyForHeader(
-          address, EmbeddingParameters.HEADER_STORAGE_OFFSET + storageKey.intValue());
+      return headerKey(
+          addressKeyHash, EmbeddingParameters.HEADER_STORAGE_OFFSET + storageKey.intValue());
     }
     final UInt256 treeIndex =
         storageKey.divide(UInt256.valueOf(EmbeddingParameters.STEM_SUBTREE_WIDTH));
@@ -159,7 +182,9 @@ public final class TrieKeyDerivation {
         storageKey.mod(UInt256.valueOf(EmbeddingParameters.STEM_SUBTREE_WIDTH)).intValue();
     final Bytes key =
         getTreeKey(
-            EmbeddingParameters.STORAGE_ZONE, storageTreePosition(address, treeIndex), subIndex);
+            EmbeddingParameters.STORAGE_ZONE,
+            storageTreePosition(address, addressKeyHash, treeIndex),
+            subIndex);
     if (key.size() != EmbeddingParameters.STORAGE_KEY_LENGTH) {
       throw new IllegalStateException("Unexpected storage key length: " + key.size());
     }

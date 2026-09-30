@@ -17,6 +17,7 @@ dependencyManagement {
     dependencies {
         // Aligned with Besu platform/build.gradle
         dependency 'com.google.guava:guava:33.5.0-jre'
+        dependency 'commons-codec:commons-codec:1.19.0'
         dependency 'org.bouncycastle:bcprov-jdk18on:1.84'
 
         dependencySet(group: 'io.consensys.tuweni', version: '2.7.2') {

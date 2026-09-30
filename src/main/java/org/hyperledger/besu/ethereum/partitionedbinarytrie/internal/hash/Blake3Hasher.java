@@ -15,26 +15,22 @@
  */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.hash;
 
+import org.apache.commons.codec.digest.Blake3;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
-import org.bouncycastle.crypto.Digest;
-import org.bouncycastle.crypto.digests.Blake3Digest;
 
 /**
- * Thread-local BLAKE3 hashing (32-byte output) for trie keys and nodes.
+ * Thread-local BLAKE3 hashing (32-byte output) for trie keys and nodes, on Apache Commons Codec.
  *
- * <p>Inputs of at most one chunk, which is every PBT key and node, go through {@link
- * Blake3SingleChunk}; anything longer (a branch with a very long prefix) falls back to
- * BouncyCastle. The tagged overloads hash {@code tag} followed by the given slices. Not part of the
- * public API.
+ * <p>The tagged overloads hash {@code tag} followed by the given slices. Not part of the public
+ * API.
  */
 public final class Blake3Hasher {
 
-  private static final ThreadLocal<Blake3SingleChunk> SINGLE_CHUNK =
-      ThreadLocal.withInitial(Blake3SingleChunk::new);
+  private static final ThreadLocal<Blake3> BLAKE3 = ThreadLocal.withInitial(Blake3::initHash);
 
-  private static final ThreadLocal<Blake3Digest> GENERAL =
-      ThreadLocal.withInitial(() -> new Blake3Digest(256));
+  /** One-byte buffer for the domain tag (Commons Codec has no single-byte update). */
+  private static final ThreadLocal<byte[]> TAG = ThreadLocal.withInitial(() -> new byte[1]);
 
   private Blake3Hasher() {}
 
@@ -46,9 +42,9 @@ public final class Blake3Hasher {
 
   /** Hash {@code data[off, off + len)}, returning an owned 32-byte digest. */
   public static byte[] hashRaw(final byte[] data, final int off, final int len) {
-    final Digest digest = digestFor(len);
-    digest.update(data, off, len);
-    return finish(digest);
+    final Blake3 blake3 = start();
+    blake3.update(data, off, len);
+    return finish(blake3);
   }
 
   /** Hash {@code tag || a || b}. */
@@ -60,11 +56,10 @@ public final class Blake3Hasher {
       final byte[] b,
       final int bOff,
       final int bLen) {
-    final Digest digest = digestFor(1 + aLen + bLen);
-    digest.update(tag);
-    digest.update(a, aOff, aLen);
-    digest.update(b, bOff, bLen);
-    return finish(digest);
+    final Blake3 blake3 = startTagged(tag);
+    blake3.update(a, aOff, aLen);
+    blake3.update(b, bOff, bLen);
+    return finish(blake3);
   }
 
   /** Hash {@code tag || a || b || c}. */
@@ -79,24 +74,26 @@ public final class Blake3Hasher {
       final byte[] c,
       final int cOff,
       final int cLen) {
-    final Digest digest = digestFor(1 + aLen + bLen + cLen);
-    digest.update(tag);
-    digest.update(a, aOff, aLen);
-    digest.update(b, bOff, bLen);
-    digest.update(c, cOff, cLen);
-    return finish(digest);
+    final Blake3 blake3 = startTagged(tag);
+    blake3.update(a, aOff, aLen);
+    blake3.update(b, bOff, bLen);
+    blake3.update(c, cOff, cLen);
+    return finish(blake3);
   }
 
-  private static Digest digestFor(final int inputLength) {
-    final Digest digest =
-        inputLength <= Blake3SingleChunk.MAX_INPUT ? SINGLE_CHUNK.get() : GENERAL.get();
-    digest.reset();
-    return digest;
+  private static Blake3 start() {
+    return BLAKE3.get().reset();
   }
 
-  private static byte[] finish(final Digest digest) {
+  private static Blake3 startTagged(final byte tag) {
+    final byte[] tagBuffer = TAG.get();
+    tagBuffer[0] = tag;
+    return start().update(tagBuffer);
+  }
+
+  private static byte[] finish(final Blake3 blake3) {
     final byte[] out = new byte[32];
-    digest.doFinal(out, 0);
+    blake3.doFinalize(out);
     return out;
   }
 }
