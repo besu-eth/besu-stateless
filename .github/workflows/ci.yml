@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'feat/**'
+      - 'feature/**'
+  pull_request:
+    branches:
+      - main
+  schedule:
+    # Weekly JMH compile smoke (full JMH is too slow for every PR)
+    - cron: '0 6 * * 1'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    if: ${{ github.actor != 'dependabot[bot]' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Spotless check
+        run: ./gradlew --no-daemon spotlessCheck
+
+      - name: Run tests
+        run: ./gradlew --no-daemon clean test
+
+      - name: Compile JMH sources
+        run: ./gradlew --no-daemon compileJmhJava
+
+  jmh-compile-scheduled:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Compile JMH (scheduled)
+        run: ./gradlew --no-daemon compileJmhJava
