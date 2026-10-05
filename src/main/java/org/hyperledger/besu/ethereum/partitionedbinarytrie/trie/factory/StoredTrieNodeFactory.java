@@ -27,6 +27,8 @@ import org.hyperledger.besu.ethereum.trie.NodeLoader;
 import java.util.Arrays;
 import java.util.Optional;
 
+import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
@@ -74,6 +76,11 @@ public final class StoredTrieNodeFactory {
   }
 
   public TrieNode wrapStored(final Bytes location, final Bytes32 hash) {
+    return wrapStored(Suppliers.ofInstance(location), hash);
+  }
+
+  /** Same as {@link #wrapStored(Bytes, Bytes32)} with a location computed only if asked for. */
+  public TrieNode wrapStored(final Supplier<Bytes> location, final Bytes32 hash) {
     // Missing child / empty root is the EmptyTrieNode singleton, never a StoredTrieNode stub.
     if (hash.equals(TrieConstants.EMPTY_TRIE_ROOT)) {
       return TrieNode.empty();

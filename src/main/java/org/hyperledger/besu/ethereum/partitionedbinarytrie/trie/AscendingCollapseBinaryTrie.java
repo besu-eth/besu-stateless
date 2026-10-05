@@ -198,10 +198,15 @@ public final class AscendingCollapseBinaryTrie {
       final int split,
       final int side,
       final List<NodeWrite> writes) {
-    final Bytes location = AscendingCollapsePutVisitor.childLocation(firstKey, split, side);
-    if (nodeUpdater.isPresent()) {
-      child.commit(location, (loc, hash, value) -> writes.add(new NodeWrite(loc, hash, value)));
+    if (nodeUpdater.isEmpty()) {
+      // Hash-only: nothing is written and the stub is never loaded, so its location is only
+      // computed if something asks for it.
+      return stubs.wrapStored(
+          () -> AscendingCollapsePutVisitor.childLocation(firstKey, split, side),
+          Bytes32.wrap(child.merkleHashBytes()));
     }
+    final Bytes location = AscendingCollapsePutVisitor.childLocation(firstKey, split, side);
+    child.commit(location, (loc, hash, value) -> writes.add(new NodeWrite(loc, hash, value)));
     return stubs.wrapStored(location, Bytes32.wrap(child.merkleHashBytes()));
   }
 

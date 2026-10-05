@@ -137,8 +137,14 @@ public final class AscendingCollapsePutVisitor extends PutVisitor {
     if (node instanceof EmptyTrieNode || node instanceof StoredTrieNode) {
       return node;
     }
+    if (nodeUpdater.isEmpty()) {
+      // Hash-only: nothing is written and the stub is never loaded, so its location is only
+      // computed if something asks for it.
+      return collapseFactory.wrapStored(
+          () -> childLocation(key, split, side), Bytes32.wrap(node.merkleHashBytes()));
+    }
     final Bytes location = childLocation(key, split, side);
-    nodeUpdater.ifPresent(updater -> node.commit(location, updater));
+    node.commit(location, nodeUpdater.get());
     return collapseFactory.wrapStored(location, Bytes32.wrap(node.merkleHashBytes()));
   }
 

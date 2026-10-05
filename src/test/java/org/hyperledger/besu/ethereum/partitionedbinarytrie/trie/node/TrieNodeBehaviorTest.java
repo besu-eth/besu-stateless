@@ -175,6 +175,25 @@ class TrieNodeBehaviorTest {
     }
 
     @Test
+    void lazyLocationIsComputedOnceAndOnlyWhenAskedFor() {
+      final int[] calls = {0};
+      final StoredTrieNode stub =
+          new StoredTrieNode(
+              factory,
+              () -> {
+                calls[0]++;
+                return Bytes.of(0, 1, 1);
+              },
+              Bytes32.repeat((byte) 0x11));
+
+      assertThat(stub.merkleHashBytes()).isEqualTo(Bytes32.repeat((byte) 0x11).toArrayUnsafe());
+      assertThat(calls[0]).isZero();
+      assertThat(stub.storageLocation()).isEqualTo(Bytes.of(0, 1, 1));
+      assertThat(stub.storageLocation()).isEqualTo(Bytes.of(0, 1, 1));
+      assertThat(calls[0]).isEqualTo(1);
+    }
+
+    @Test
     void markDirtyIsRejected() {
       final StoredTrieNode proxy =
           new StoredTrieNode(factory, Bytes.EMPTY, Bytes32.repeat((byte) 0x11));
