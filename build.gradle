@@ -57,7 +57,9 @@ java {
 }
 
 repositories {
-  mavenLocal()
+  mavenLocal {
+    content { includeGroupByRegex('org\\.hyperledger\\..*') }
+  }
   mavenCentral()
   maven {
     url = uri('https://hyperledger.jfrog.io/hyperledger/besu-maven')
