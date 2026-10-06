@@ -26,34 +26,12 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
 /**
- * Mapping of variable-length keys to 32-byte values with a single root hash.
- *
- * <p>This implementation stores key/value pairs and rebuilds the canonical node structure on every
- * root computation, matching the EIP-8297 reference specification. For incremental updates, use
- * {@link MutableBinaryTrie}.
+ * Test oracle: keeps the entries and rebuilds the canonical trie of the EIP-8297 reference on every
+ * root computation.
  */
 public final class BinaryTrie {
 
-  private final Map<Bytes, Bytes32> data;
-
-  /** Creates an empty trie. */
-  public BinaryTrie() {
-    this(new HashMap<>());
-  }
-
-  private BinaryTrie(final Map<Bytes, Bytes32> data) {
-    this.data = data;
-  }
-
-  /**
-   * Returns a shallow copy of {@code trie} with an independent entry map.
-   *
-   * @param trie trie to copy
-   * @return a new trie containing the same entries
-   */
-  public static BinaryTrie copyOf(final BinaryTrie trie) {
-    return new BinaryTrie(new HashMap<>(trie.data));
-  }
+  private final Map<Bytes, Bytes32> data = new HashMap<>();
 
   /**
    * Looks up a value by key.
@@ -63,17 +41,6 @@ public final class BinaryTrie {
    */
   public Optional<Bytes32> get(final Bytes key) {
     return Optional.ofNullable(data.get(key));
-  }
-
-  /**
-   * Reads an EIP-8297 state value.
-   *
-   * @param key variable-length key
-   * @return the 32-byte value, or zero when absent
-   */
-  public Bytes32 readState(final Bytes key) {
-    validateKey(key);
-    return get(key).orElse(Bytes32.ZERO);
   }
 
   /**
@@ -87,7 +54,6 @@ public final class BinaryTrie {
    */
   public void put(final Bytes key, final Bytes32 value) {
     validateKey(key);
-    validateValue(value);
     data.put(key, value);
   }
 
@@ -113,28 +79,12 @@ public final class BinaryTrie {
     return TrieHasher.merkleize(Binarizer.binarize(data, 0));
   }
 
-  /** Returns {@code true} if the trie contains no entries. */
-  public boolean isEmpty() {
-    return data.isEmpty();
-  }
-
-  /** Returns the number of key-value pairs stored. */
-  public int size() {
-    return data.size();
-  }
-
   private static void validateKey(final Bytes key) {
     if (key.isEmpty()) {
       throw new IllegalArgumentException("Key must not be empty");
     }
     if (key.size() > TrieConstants.MAX_KEY_LENGTH) {
       throw new IllegalArgumentException("Key exceeds maximum length");
-    }
-  }
-
-  private static void validateValue(final Bytes32 value) {
-    if (value.size() != TrieConstants.VALUE_LENGTH) {
-      throw new IllegalArgumentException("Value must be 32 bytes");
     }
   }
 }

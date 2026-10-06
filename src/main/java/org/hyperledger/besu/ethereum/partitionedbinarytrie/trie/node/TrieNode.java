@@ -90,7 +90,7 @@ public abstract class TrieNode {
    * Accepts a path-keyed visitor starting at {@code depth} into the lookup key.
    *
    * @param visitor path visitor (get, put, remove, …)
-   * @param key lookup key (bytes and expanded path bits)
+   * @param key lookup key
    * @param depth current bit depth
    * @return updated subtree root
    */

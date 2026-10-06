@@ -16,15 +16,10 @@ package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node;
 
 import static java.util.stream.Collectors.toUnmodifiableSet;
 
-import java.util.Map;
-import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
-
-import org.apache.tuweni.bytes.Bytes;
-import org.apache.tuweni.bytes.Bytes32;
 
 /** Ordered traversal helpers for {@link TrieNode} graphs. */
 public final class TrieNodeTraversal {
@@ -111,34 +106,6 @@ public final class TrieNodeTraversal {
   public static void visitLeaves(final TrieNode root, final LeafHandler handler) {
     final boolean[] stopped = {false};
     visitLeavesWithStop(root, handler, stopped);
-  }
-
-  /**
-   * Collects up to {@code limit} entries with keys greater than or equal to {@code startKey}.
-   *
-   * @param root subtree root
-   * @param startKey first key to include (lexicographic)
-   * @param startKeyLen valid length of {@code startKey}
-   * @param limit maximum number of entries
-   * @return map of right-padded key hash to value bytes
-   */
-  public static Map<Bytes32, byte[]> entriesFrom(
-      final TrieNode root, final byte[] startKey, final int startKeyLen, final int limit) {
-    final Bytes32 startKeyPadded = Bytes32.rightPad(Bytes.wrap(startKey, 0, startKeyLen));
-    final Map<Bytes32, byte[]> values = new TreeMap<>();
-    visitLeaves(
-        root,
-        (key, keyLen, value) -> {
-          final Bytes32 keyPadded = Bytes32.rightPad(Bytes.wrap(key, 0, keyLen));
-          if (keyPadded.compareTo(startKeyPadded) >= 0) {
-            values.put(keyPadded, value);
-            if (values.size() >= limit) {
-              return LeafHandler.State.STOP;
-            }
-          }
-          return LeafHandler.State.CONTINUE;
-        });
-    return values;
   }
 
   private static void visitLeavesWithStop(

@@ -16,139 +16,136 @@ package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.TrieNodeCodec;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.NodeLoaderMock;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.NodeUpdaterMock;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.PartitionedBinaryTrieFactory;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference.BinaryTrie;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
- * Branch flatten after remove survives commit and reload from location-keyed storage (Besu Bonsai
- * semantics).
+ * Removals that move a stored node to its parent's location, on a trie reopened from storage so
+ * that the moved node is a stub. Storage is keyed by location, so the moved node is rewritten
+ * there; its old entry stays behind, unreachable.
+ *
+ * <p>The trie holds stems 0x00, 0x80, 0xC0 (two leaves) and 0xE0: a branch at the root, branch U at
+ * path 1, branch V at path 11, and the stems at paths 0, 10, 110 and 111.
  */
 class TrieFlattenLocationOnlyTest {
 
-  private NodeUpdaterMock nodeUpdater;
-  private PartitionedBinaryTrieFactory factory;
+  private static final Bytes K00 = Bytes.fromHexString("0x0001");
+  private static final Bytes K80 = Bytes.fromHexString("0x8001");
+  private static final Bytes KC0 = Bytes.fromHexString("0xc001");
+  private static final Bytes KC0B = Bytes.fromHexString("0xc002");
+  private static final Bytes KE0 = Bytes.fromHexString("0xe001");
 
-  @BeforeEach
-  void setUp() {
-    nodeUpdater = new NodeUpdaterMock();
-    factory = new PartitionedBinaryTrieFactory(new NodeLoaderMock(nodeUpdater));
+  // Locations: 0x00, then the path bits and a closing 1 bit.
+  private static final Bytes PATH_0 = Bytes.fromHexString("0x0040");
+  private static final Bytes PATH_1 = Bytes.fromHexString("0x00c0");
+  private static final Bytes PATH_10 = Bytes.fromHexString("0x00a0");
+  private static final Bytes PATH_11 = Bytes.fromHexString("0x00e0");
+  private static final Bytes PATH_110 = Bytes.fromHexString("0x00d0");
+  private static final Bytes PATH_111 = Bytes.fromHexString("0x00f0");
+
+  private final NodeUpdaterMock store = new NodeUpdaterMock();
+  private final NodeLoaderMock loader = new NodeLoaderMock(store);
+  private final Map<Bytes, Bytes32> entries = new HashMap<>();
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void storedBranchSurvivorMergesWithItsParent(final boolean parallel) {
+    final StoredPartitionedBinaryTrie trie = reopenedTrie(parallel);
+
+    // U loses stem 0x80: U and V merge into one branch with prefix 1, at U's location.
+    remove(trie, K80);
+    trie.commit(store);
+
+    final byte[] merged = store.storage.get(PATH_1).toArrayUnsafe();
+    assertThat(merged[0]).isEqualTo(TrieNodeCodec.BRANCH_TAG);
+    assertThat(TrieNodeCodec.branchPrefixLength(merged)).isEqualTo(1);
+    assertReads(parallel);
   }
 
-  @Test
-  void flattenAfterCommitSurvivesLocationOnlyReload() {
-    // Three keys that share a long common prefix so that removing keyB forces a multi-level
-    // branch collapse (flatten) deep in the trie, hoisting keyC's subtree upward.
-    final Bytes keyA = Bytes.fromHexString("0x0000000000000000000000000000000000000001");
-    final Bytes keyB = Bytes.fromHexString("0x0000000000000000000000000000000000000002");
-    final Bytes keyC = Bytes.fromHexString("0x00000000000000000000000000000000000000ff");
-    final Bytes32 valueA = Bytes32.repeat((byte) 0x0A);
-    final Bytes32 valueB = Bytes32.repeat((byte) 0x0B);
-    final Bytes32 valueC = Bytes32.repeat((byte) 0x0C);
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void storedStemSurvivorIsRewrittenAtItsParentsLocation(final boolean parallel) {
+    final StoredPartitionedBinaryTrie trie = reopenedTrie(parallel);
 
-    final StoredPartitionedBinaryTrie trie = factory.create();
-    trie.put(keyA.toArray(), keyA.size(), valueA.toArray());
-    trie.put(keyB.toArray(), keyB.size(), valueB.toArray());
-    trie.put(keyC.toArray(), keyC.size(), valueC.toArray());
-    trie.commit(nodeUpdater);
-    final Bytes32 rootWithAll = trie.getRootHash();
+    // V loses stem 0xE0: stem 0xC0 takes V's place, as one entry with both leaves.
+    remove(trie, KE0);
+    trie.commit(store);
 
-    // Remove keyB: keyA/keyC's shared branch should collapse (flatten), hoisting whatever
-    // survives up by at least one level.
-    trie.remove(keyB.toArray(), keyB.size());
-    trie.commit(nodeUpdater);
-    final Bytes32 rootAfterRemove = trie.getRootHash();
+    assertThat(stemKeys(PATH_11)).containsExactly(KC0, KC0B);
+    assertReads(parallel);
+  }
 
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void storedOneLeafStemSurvivorIsRewrittenAtItsParentsLocation(final boolean parallel) {
+    final StoredPartitionedBinaryTrie trie = reopenedTrie(parallel);
+
+    // V loses stem 0xC0: stem 0xE0 takes V's place.
+    remove(trie, KC0);
+    remove(trie, KC0B);
+    trie.commit(store);
+
+    assertThat(stemKeys(PATH_11)).containsExactly(KE0);
+    assertReads(parallel);
+  }
+
+  /** Commits the five keys, checks where each node lands, and reopens the trie from storage. */
+  private StoredPartitionedBinaryTrie reopenedTrie(final boolean parallel) {
+    final StoredPartitionedBinaryTrie trie = open(parallel);
+    for (final Bytes key : List.of(K00, K80, KC0, KC0B, KE0)) {
+      final Bytes32 value = Bytes32.repeat(key.get(1));
+      trie.put(key, value);
+      entries.put(key, value);
+    }
+    trie.commit(store);
+    assertThat(store.storage)
+        .containsOnlyKeys(Bytes.EMPTY, PATH_0, PATH_1, PATH_10, PATH_11, PATH_110, PATH_111);
+    return open(parallel);
+  }
+
+  private void remove(final StoredPartitionedBinaryTrie trie, final Bytes key) {
+    trie.remove(key);
+    entries.remove(key);
+  }
+
+  private List<Bytes> stemKeys(final Bytes location) {
+    final byte[] stem = store.storage.get(location).toArrayUnsafe();
+    assertThat(stem[0]).isEqualTo(TrieNodeCodec.STEM_TAG);
+    final List<Bytes> keys = new ArrayList<>();
+    TrieNodeCodec.decodeStem(stem, (key, value) -> keys.add(Bytes.wrap(key)));
+    return keys;
+  }
+
+  /** The trie reopened through its root location: root against the spec, and every value. */
+  private void assertReads(final boolean parallel) {
     final BinaryTrie spec = new BinaryTrie();
-    spec.put(keyA, valueA);
-    spec.put(keyB, valueB);
-    spec.put(keyC, valueC);
-    spec.remove(keyB);
-    assertThat(rootAfterRemove).isEqualTo(spec.root());
-
-    // Fresh trie instance, forcing every node to be re-decoded from location-only storage.
-    final StoredPartitionedBinaryTrie reloaded = factory.create(rootAfterRemove);
-
-    assertThat(reloaded.get(keyA.toArray(), keyA.size()))
-        .as("keyA must survive the flatten + location-only reload")
-        .contains(valueA.toArray());
-    assertThat(reloaded.get(keyC.toArray(), keyC.size()))
-        .as("keyC must survive the flatten + location-only reload")
-        .contains(valueC.toArray());
-    assertThat(reloaded.get(keyB.toArray(), keyB.size())).isEmpty();
-    assertThat(reloaded.getRootHash()).isEqualTo(rootAfterRemove);
+    entries.forEach(spec::put);
+    final StoredPartitionedBinaryTrie reloaded = open(parallel);
     assertThat(reloaded.getRootHash()).isEqualTo(spec.root());
-    assertThat(rootAfterRemove).isNotEqualTo(rootWithAll);
+    for (final Bytes key : List.of(K00, K80, KC0, KC0B, KE0)) {
+      if (entries.containsKey(key)) {
+        assertThat(reloaded.get(key)).as("key %s", key).contains(entries.get(key));
+      } else {
+        assertThat(reloaded.get(key)).as("key %s", key).isEmpty();
+      }
+    }
   }
 
-  @Test
-  void flattenWithBranchSurvivorSurvivesLocationOnlyReload() {
-    // keyA diverges at bit 0, so it lives untouched on the other side of the root and must not
-    // need relocation. keyD/keyE/keyF share their first 20 bytes (bit 0 = 0); keyD alone forms
-    // the left side of an inner branch, keyE/keyF form its right side as a two-leaf BranchNode.
-    // Removing keyD leaves that inner branch's *branch* child (keyE/keyF) as the sole survivor,
-    // exercising BranchNode.maybeFlatten's "loaded instanceof BranchNode" merge path rather than
-    // the leaf-survivor path covered above.
-    final Bytes keyA = keyWithFirstAndLastByte(21, 0xFF, 0x00);
-    final Bytes keyD = keyWithFirstAndLastByte(21, 0x00, 0x01); // 0000_0001
-    final Bytes keyE = keyWithFirstAndLastByte(21, 0x00, 0x84); // 1000_0100
-    final Bytes keyF = keyWithFirstAndLastByte(21, 0x00, 0xC4); // 1100_0100
-    final Bytes32 valueA = Bytes32.repeat((byte) 0x0A);
-    final Bytes32 valueD = Bytes32.repeat((byte) 0x0D);
-    final Bytes32 valueE = Bytes32.repeat((byte) 0x0E);
-    final Bytes32 valueF = Bytes32.repeat((byte) 0x0F);
-
-    final StoredPartitionedBinaryTrie trie = factory.create();
-    trie.put(keyA.toArray(), keyA.size(), valueA.toArray());
-    trie.put(keyD.toArray(), keyD.size(), valueD.toArray());
-    trie.put(keyE.toArray(), keyE.size(), valueE.toArray());
-    trie.put(keyF.toArray(), keyF.size(), valueF.toArray());
-    trie.commit(nodeUpdater);
-    final Bytes32 rootWithAll = trie.getRootHash();
-
-    // Remove keyD: the branch holding {D, E, F} loses its leaf side, so its survivor is the
-    // {E, F} BranchNode itself (not a leaf) — the merge path in maybeFlatten.
-    trie.remove(keyD.toArray(), keyD.size());
-    trie.commit(nodeUpdater);
-    final Bytes32 rootAfterRemove = trie.getRootHash();
-
-    final BinaryTrie spec = new BinaryTrie();
-    spec.put(keyA, valueA);
-    spec.put(keyD, valueD);
-    spec.put(keyE, valueE);
-    spec.put(keyF, valueF);
-    spec.remove(keyD);
-    assertThat(rootAfterRemove).isEqualTo(spec.root());
-
-    // Fresh trie instance, forcing every node to be re-decoded from location-only storage.
-    final StoredPartitionedBinaryTrie reloaded = factory.create(rootAfterRemove);
-
-    assertThat(reloaded.get(keyA.toArray(), keyA.size()))
-        .as("untouched sibling keyA must still resolve at its original location")
-        .contains(valueA.toArray());
-    assertThat(reloaded.get(keyE.toArray(), keyE.size()))
-        .as("keyE (branch survivor) must survive the flatten + location-only reload")
-        .contains(valueE.toArray());
-    assertThat(reloaded.get(keyF.toArray(), keyF.size()))
-        .as("keyF (branch survivor) must survive the flatten + location-only reload")
-        .contains(valueF.toArray());
-    assertThat(reloaded.get(keyD.toArray(), keyD.size())).isEmpty();
-    assertThat(reloaded.getRootHash()).isEqualTo(rootAfterRemove);
-    assertThat(reloaded.getRootHash()).isEqualTo(spec.root());
-    assertThat(rootAfterRemove).isNotEqualTo(rootWithAll);
-  }
-
-  private static Bytes keyWithFirstAndLastByte(
-      final int length, final int firstByte, final int lastByte) {
-    final byte[] key = new byte[length];
-    key[0] = (byte) firstByte;
-    key[length - 1] = (byte) lastByte;
-    return Bytes.wrap(key);
+  private StoredPartitionedBinaryTrie open(final boolean parallel) {
+    return parallel
+        ? new ParallelStoredPartitionedBinaryTrie(loader)
+        : new StoredPartitionedBinaryTrie(loader);
   }
 }

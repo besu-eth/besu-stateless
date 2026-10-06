@@ -15,12 +15,12 @@
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieConstants;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKeyDerivation;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.NodeLoaderMock;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.NodeUpdaterMock;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.PartitionedBinaryTrieFactory;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference.BinaryTrie;
 
 import java.util.ArrayList;
@@ -29,8 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
-import java.util.concurrent.Executors;
-import java.util.function.Function;
+import java.util.function.BiFunction;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -41,10 +40,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
- * Correctness of {@link ParallelStoredPartitionedBinaryTrie} against the sequential stored trie.
- *
- * <p>Layer: trie (parallel commit path). Each operation is mirrored on {@link
- * StoredPartitionedBinaryTrie}; root hash, values, and persisted node sets must match.
+ * {@link ParallelStoredPartitionedBinaryTrie} against the sequential {@link
+ * StoredPartitionedBinaryTrie}: every commit must give the same root and write the same entries.
  */
 class ParallelTrieTest {
 
@@ -67,20 +64,33 @@ class ParallelTrieTest {
   }
 
   @Test
-  void shouldCreateEmptyTrie() {
+  void emptyTrieHasTheEmptyRoot() {
     assertThat(parallelTrie.getRootHash()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
     assertThat(parallelTrie.isEmpty()).isTrue();
   }
 
   @Test
-  void shouldPutAndGetSingleKey() {
-    final Bytes key = Bytes.fromHexString("0x1122");
-    final Bytes32 value = Bytes32.repeat((byte) 0xAB);
+  void getSeesPendingUpdatesOnceProcessed() {
+    // As in Besu's ParallelStoredMerklePatriciaTrie, get reads the trie as last processed.
+    parallelTrie.put(createKey(1), createValue(1));
+    assertThat(parallelTrie.get(createKey(1))).isEmpty();
 
-    parallelTrie.put(key, value);
-    parallelTrie.commit(parallelUpdater);
+    parallelTrie.getRootHash();
+    assertThat(parallelTrie.get(createKey(1))).contains(createValue(1));
+  }
 
-    assertThat(parallelTrie.get(key)).contains(value);
+  @Test
+  void commitAfterGetRootHashStoresTheProcessedUpdates() {
+    final Map<Bytes, Bytes32> entries = new HashMap<>();
+    for (int i = 1; i <= 50; i++) {
+      entries.put(createKey(i), createValue(i));
+    }
+    entries.forEach(this::putBoth);
+    // Processes the batch without storing anything: the commit must still store all of it.
+    parallelTrie.getRootHash();
+    commitBoth();
+
+    assertReloadReads(entries);
   }
 
   @Test
@@ -89,22 +99,15 @@ class ParallelTrieTest {
     // the queued remove erased the newer put at commit.
     final Bytes key = Bytes.fromHexString("0x00" + "11".repeat(32) + "00");
     final Bytes other = Bytes.fromHexString("0x00" + "22".repeat(32) + "00");
-    for (final StoredPartitionedBinaryTrie trie : List.of(parallelTrie, sequentialTrie)) {
-      trie.put(key, Bytes32.repeat((byte) 1));
-      trie.put(other, Bytes32.repeat((byte) 1));
-    }
-    parallelTrie.commit(parallelUpdater);
-    sequentialTrie.commit(sequentialUpdater);
+    putBoth(key, Bytes32.repeat((byte) 1));
+    putBoth(other, Bytes32.repeat((byte) 1));
+    commitBoth();
 
-    for (final StoredPartitionedBinaryTrie trie : List.of(parallelTrie, sequentialTrie)) {
-      trie.remove(key);
-      trie.put(key, Bytes32.repeat((byte) 2));
-    }
-    parallelTrie.commit(parallelUpdater);
-    sequentialTrie.commit(sequentialUpdater);
+    removeBoth(key);
+    putBoth(key, Bytes32.repeat((byte) 2));
+    commitBoth();
 
-    assertThat(parallelTrie.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
-    assertThat(parallelTrie.get(key)).contains(Bytes32.repeat((byte) 2));
+    assertReloadReads(Map.of(key, Bytes32.repeat((byte) 2), other, Bytes32.repeat((byte) 1)));
   }
 
   @Test
@@ -112,77 +115,44 @@ class ParallelTrieTest {
     // Last reference deleted and the same code deployed again in one block: chunks must survive.
     final Bytes32 codeHash = Bytes32.repeat((byte) 0x0c);
     final Bytes code = Bytes.fromHexString("0x6001600155");
-    final Bytes firstChunk = TrieKeyDerivation.getTreeKeyForCodeChunk(codeHash, 0);
     for (final StoredPartitionedBinaryTrie trie : List.of(parallelTrie, sequentialTrie)) {
       trie.insertCode(codeHash, code);
     }
-    parallelTrie.commit(parallelUpdater);
-    sequentialTrie.commit(sequentialUpdater);
+    commitBoth();
 
     for (final StoredPartitionedBinaryTrie trie : List.of(parallelTrie, sequentialTrie)) {
       trie.deleteCode(codeHash);
       trie.insertCode(codeHash, code);
     }
-    parallelTrie.commit(parallelUpdater);
-    sequentialTrie.commit(sequentialUpdater);
+    commitBoth();
 
-    assertThat(parallelTrie.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
-    assertThat(parallelTrie.get(firstChunk)).isPresent();
+    assertThat(reloadParallel().get(TrieKeyDerivation.getTreeKeyForCodeChunk(codeHash, 0)))
+        .isPresent();
   }
 
   @Test
-  void shouldHandleMultipleKeys() {
-    final int numEntries = 100;
+  void removingTheLastKeyEmptiesTheTrie() {
+    final Bytes key = createKey(1);
+    putBoth(key, createValue(1));
+    commitBoth();
 
-    for (int i = 1; i <= numEntries; i++) {
-      final Bytes key = createKey(i);
-      final Bytes32 value = createValue(i);
-      parallelTrie.put(key, value);
-      sequentialTrie.put(key, value);
-    }
+    removeBoth(key);
+    commitBoth();
 
-    parallelTrie.commit(parallelUpdater);
-    sequentialTrie.commit(sequentialUpdater);
-
-    for (int i = 1; i <= numEntries; i++) {
-      final Bytes key = createKey(i);
-      final Bytes32 value = createValue(i);
-      assertThat(parallelTrie.get(key)).contains(value);
-    }
-
-    assertThat(parallelTrie.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
-  }
-
-  @Test
-  void shouldRemoveDeletesLeafAndStateReadReturnsZero() {
-    final Bytes key = Bytes.fromHexString("0x01020304");
-    final Bytes32 value = createValue(100);
-
-    parallelTrie.put(key, value);
-    sequentialTrie.put(key, value);
-    parallelTrie.commit(parallelUpdater);
-    sequentialTrie.commit(sequentialUpdater);
-    assertThat(parallelTrie.get(key)).contains(value);
-
-    parallelTrie.remove(key);
-    sequentialTrie.remove(key);
-    parallelTrie.commit(parallelUpdater);
-    sequentialTrie.commit(sequentialUpdater);
-
-    assertThat(parallelTrie.get(key)).isEmpty();
     assertThat(parallelTrie.readState(key)).isEqualTo(Bytes32.ZERO);
-    assertThat(parallelTrie.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
+    // Reopened through the root location, which now holds the empty-root marker.
+    assertThat(reloadParallel().getRootHash()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
   }
 
   @Test
   void pendingUpdatesAreIsolatedFromCallerArrayMutation() {
-    final byte[] key = Bytes.fromHexString("0x01020304").toArray();
+    final byte[] key = createKey(1).toArray();
     final byte[] value = createValue(100).toArray();
     final Bytes originalKey = Bytes.wrap(key.clone());
     final Bytes32 originalValue = Bytes32.wrap(value.clone());
 
     parallelTrie.put(key, key.length, value);
-    key[0] = (byte) 0x7F;
+    key[0] ^= (byte) 0x7F;
     value[0] = (byte) 0x7F;
     parallelTrie.commit(parallelUpdater);
 
@@ -191,136 +161,188 @@ class ParallelTrieTest {
   }
 
   @Test
-  void shouldUpdateKey() {
-    final Bytes key = Bytes.fromHexString("0x01020304");
-    final Bytes32 value1 = createValue(100);
-    final Bytes32 value2 = createValue(200);
-
-    parallelTrie.put(key, value1);
-    sequentialTrie.put(key, value1);
-    parallelTrie.commit(parallelUpdater);
-    sequentialTrie.commit(sequentialUpdater);
-
-    parallelTrie.put(key, value2);
-    sequentialTrie.put(key, value2);
-    parallelTrie.commit(parallelUpdater);
-    sequentialTrie.commit(sequentialUpdater);
-
-    assertThat(parallelTrie.get(key)).contains(value2);
-    assertThat(parallelTrie.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
-  }
-
-  @Test
-  void shouldHandleKeysWithCommonPrefix() {
-    for (int i = 0; i < 20; i++) {
-      final Bytes key = createKey(0x01020300 | i);
-      final Bytes32 value = createValue(i);
-      parallelTrie.put(key, value);
-      sequentialTrie.put(key, value);
+  void updateOfAKeyMatchesSequential() {
+    final Map<Bytes, Bytes32> entries = new HashMap<>();
+    for (int i = 1; i <= 20; i++) {
+      entries.put(createKey(i), createValue(i));
     }
+    entries.forEach(this::putBoth);
+    commitBoth();
 
-    parallelTrie.commit(parallelUpdater);
-    sequentialTrie.commit(sequentialUpdater);
+    entries.put(createKey(7), createValue(200));
+    putBoth(createKey(7), createValue(200));
+    commitBoth();
+
+    assertReloadReads(entries);
+  }
+
+  @Test
+  void manyLeavesOfOneStemMatchSequential() {
+    final Map<Bytes, Bytes32> entries = new HashMap<>();
+    for (int i = 0; i < 20; i++) {
+      entries.put(Bytes.of(1, 2, 3, i), createValue(i));
+    }
+    entries.forEach(this::putBoth);
+    commitBoth();
+
+    assertReloadReads(entries);
+  }
+
+  @Test
+  void keysDivergingAtDifferentDepthsMatchSequential() {
+    final Map<Bytes, Bytes32> entries =
+        Map.of(
+            Bytes.fromHexString("0x01000000"), createValue(1),
+            Bytes.fromHexString("0x02000000"), createValue(2),
+            Bytes.fromHexString("0x03040501"), createValue(3),
+            Bytes.fromHexString("0x03040502"), createValue(4));
+    entries.forEach(this::putBoth);
+    commitBoth();
+
+    assertReloadReads(entries);
+  }
+
+  @Test
+  void batchRemovingEveryKeyEmptiesTheTrie() {
+    for (int i = 1; i <= 10; i++) {
+      putBoth(createKey(i), createValue(i));
+    }
+    commitBoth();
+
+    for (int i = 1; i <= 10; i++) {
+      removeBoth(createKey(i));
+    }
+    commitBoth();
+
+    assertReloadReads(Map.of());
+  }
+
+  @Test
+  void removalsAndUpdatesInOneBatchMatchSequential() {
+    final Map<Bytes, Bytes32> entries = new HashMap<>();
+    for (int i = 0; i < 50; i++) {
+      entries.put(createKey(i + 1), createValue(i));
+    }
+    entries.forEach(this::putBoth);
+    commitBoth();
 
     for (int i = 0; i < 20; i++) {
-      final Bytes key = createKey(0x01020300 | i);
-      assertThat(parallelTrie.get(key)).contains(createValue(i));
+      removeBoth(createKey(i + 1));
+      entries.remove(createKey(i + 1));
     }
+    for (int i = 20; i < 35; i++) {
+      putBoth(createKey(i + 1), createValue(i * 10));
+      entries.put(createKey(i + 1), createValue(i * 10));
+    }
+    commitBoth();
 
-    assertThat(parallelTrie.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
+    assertReloadReads(entries);
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {1, 10, 50, 100, 200})
+  void batchesOfAnySizeMatchSequential(final int size) {
+    final Map<Bytes, Bytes32> entries = new HashMap<>();
+    for (int i = 1; i <= size; i++) {
+      entries.put(createKey(i), createValue(i));
+    }
+    entries.forEach(this::putBoth);
+    commitBoth();
+
+    assertReloadReads(entries);
   }
 
   @Test
-  void shouldHandleDivergingKeysAtDifferentDepths() {
-    final Bytes key1 = createKey(0x01000000);
-    final Bytes key2 = createKey(0x02000000);
-    final Bytes key3 = createKey(0x03040501);
-    final Bytes key4 = createKey(0x03040502);
+  void putDeferredMergesWithThePriorValue() {
+    final Bytes key = createKey(1);
+    putBoth(key, createValue(1));
+    commitBoth();
 
-    parallelTrie.put(key1, createValue(1));
-    parallelTrie.put(key2, createValue(2));
-    parallelTrie.put(key3, createValue(3));
-    parallelTrie.put(key4, createValue(4));
+    for (final StoredPartitionedBinaryTrie trie : List.of(parallelTrie, sequentialTrie)) {
+      trie.putDeferred(key, prior -> prior.map(value -> createValue(value.get(0) + 1)));
+    }
+    commitBoth();
+    assertThat(reloadParallel().get(key)).contains(createValue(2));
 
-    sequentialTrie.put(key1, createValue(1));
-    sequentialTrie.put(key2, createValue(2));
-    sequentialTrie.put(key3, createValue(3));
-    sequentialTrie.put(key4, createValue(4));
-
-    parallelTrie.commit(parallelUpdater);
-    sequentialTrie.commit(sequentialUpdater);
-
-    assertThat(parallelTrie.get(key1)).contains(createValue(1));
-    assertThat(parallelTrie.get(key2)).contains(createValue(2));
-    assertThat(parallelTrie.get(key3)).contains(createValue(3));
-    assertThat(parallelTrie.get(key4)).contains(createValue(4));
-    assertThat(parallelTrie.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
+    for (final StoredPartitionedBinaryTrie trie : List.of(parallelTrie, sequentialTrie)) {
+      trie.putDeferred(key, prior -> Optional.empty());
+    }
+    commitBoth();
+    assertThat(reloadParallel().get(key)).isEmpty();
   }
 
   @Test
-  void shouldBatchRemoveTwoKeysAfterCommit() {
-    parallelTrie.put(createKey(1), createValue(1));
-    parallelTrie.put(createKey(2), createValue(2));
-    sequentialTrie.put(createKey(1), createValue(1));
-    sequentialTrie.put(createKey(2), createValue(2));
-    parallelTrie.commit(parallelUpdater);
-    sequentialTrie.commit(sequentialUpdater);
+  void deferredRemovalBesideANewKeyMatchesSequential() {
+    // Both keys start with a 0 bit: the new key turns the stored leaf into a branch, unless the
+    // merge removes the leaf first.
+    for (int i = 0; i < 16; i++) {
+      setUp();
+      final Bytes stored = Bytes.of(0x10, i);
+      final Bytes added = Bytes.of(0x20, i);
+      putBoth(stored, createValue(1));
+      commitBoth();
 
-    parallelTrie.remove(createKey(1));
-    parallelTrie.remove(createKey(2));
-    sequentialTrie.remove(createKey(1));
-    sequentialTrie.remove(createKey(2));
-    parallelTrie.commit(parallelUpdater);
-    sequentialTrie.commit(sequentialUpdater);
-
-    assertThat(parallelTrie.get(createKey(1))).isEmpty();
-    assertThat(parallelTrie.get(createKey(2))).isEmpty();
-    assertThat(parallelTrie.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
-    assertThat(parallelTrie.getRootHash()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
+      putBoth(added, createValue(2));
+      for (final StoredPartitionedBinaryTrie trie : List.of(parallelTrie, sequentialTrie)) {
+        trie.putDeferred(stored, prior -> Optional.empty());
+      }
+      commitBoth();
+      assertReloadReads(Map.of(added, createValue(2)));
+    }
   }
 
   @Test
-  void parallelCommitStoresTheSameEntriesAsASequentialCommit() {
+  void keyThatIsAPrefixOfAnotherFailsTheBatch() {
+    putBoth(Bytes.fromHexString("0xaa00"), createValue(1));
+    putBoth(Bytes.fromHexString("0xaa80"), createValue(1));
+    commitBoth();
+    final Bytes32 root = parallelTrie.getRootHash();
+
+    // 0xaa ends at the split of the branch over 0xaa00 and 0xaa80.
+    parallelTrie.put(Bytes.fromHexString("0xaa"), createValue(2));
+    parallelTrie.put(Bytes.fromHexString("0xbb"), createValue(2));
+    assertThatThrownBy(parallelTrie::getRootHash)
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("prefix-freedom");
+    assertThat(parallelTrie.getRootHash()).isEqualTo(root);
+  }
+
+  @Test
+  void commitsOverManyAccountsMatchSequential() {
     final Random random = new Random(17);
+    final Map<Bytes, Bytes32> entries = new HashMap<>();
     final List<Bytes32> addresses = new ArrayList<>();
     for (int i = 0; i < 300; i++) {
-      addresses.add(Bytes32.random(random));
-    }
-    // Inserts, then updates, then removals.
-    for (int round = 0; round < 3; round++) {
-      for (final Bytes32 address : addresses) {
-        for (int slot = 0; slot < 1 + random.nextInt(round == 0 ? 6 : 2); slot++) {
-          final Bytes key =
-              TrieKeyDerivation.getTreeKeyForStorageSlot(
-                  address, UInt256.valueOf(random.nextInt(300)));
-          if (round == 2 && random.nextBoolean()) {
-            parallelTrie.remove(key);
-            sequentialTrie.remove(key);
-          } else {
-            final Bytes32 value = Bytes32.random(random);
-            parallelTrie.put(key, value);
-            sequentialTrie.put(key, value);
-          }
-        }
-        if (round == 0) {
-          final Bytes key = TrieKeyDerivation.getTreeKeyForBasicData(address);
-          final Bytes32 value = Bytes32.random(random);
-          parallelTrie.put(key, value);
-          sequentialTrie.put(key, value);
-        }
+      final Bytes32 address = Bytes32.random(random);
+      addresses.add(address);
+      entries.put(TrieKeyDerivation.getTreeKeyForBasicData(address), Bytes32.random(random));
+      final int slots = 1 + random.nextInt(6);
+      for (int slot = 0; slot < slots; slot++) {
+        entries.put(storageSlot(address, random.nextInt(300)), Bytes32.random(random));
       }
-      parallelTrie.commit(parallelUpdater);
-      sequentialTrie.commit(sequentialUpdater);
-
-      assertThat(parallelTrie.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
-      assertThat(parallelUpdater.storage)
-          .as("round %d", round)
-          .isEqualTo(sequentialUpdater.storage);
-      parallelTrie =
-          new ParallelStoredPartitionedBinaryTrie(parallelLoader, parallelTrie.getRootHash());
-      sequentialTrie =
-          new StoredPartitionedBinaryTrie(sequentialLoader, sequentialTrie.getRootHash());
     }
+    entries.forEach(this::putBoth);
+    commitBoth();
+
+    // Then updates of existing keys, with a few new slots, then removals of existing keys.
+    final List<Bytes> keys = new ArrayList<>(entries.keySet());
+    keys.sort(Bytes::compareTo);
+    for (int i = 0; i < keys.size(); i += 3) {
+      entries.put(keys.get(i), Bytes32.random(random));
+    }
+    for (int i = 0; i < addresses.size(); i += 10) {
+      entries.put(storageSlot(addresses.get(i), 1000 + i), Bytes32.random(random));
+    }
+    entries.forEach(this::putBoth);
+    commitBoth();
+
+    for (int i = 1; i < keys.size(); i += 2) {
+      removeBoth(keys.get(i));
+      entries.remove(keys.get(i));
+    }
+    commitBoth();
+
+    assertReloadReads(entries);
   }
 
   @Test
@@ -331,20 +353,15 @@ class ParallelTrieTest {
     for (int i = 0; i < 50; i++) {
       addresses.add(Bytes32.random(random));
     }
-    final Map<Bytes, Bytes32> expected = new HashMap<>();
+    final Map<Bytes, Bytes32> entries = new HashMap<>();
     for (final Bytes32 address : addresses) {
-      expected.put(TrieKeyDerivation.getTreeKeyForBasicData(address), Bytes32.random(random));
-      expected.put(TrieKeyDerivation.getTreeKeyForCodeHash(address), Bytes32.random(random));
-      expected.put(storageSlot(address, 256), Bytes32.random(random));
-      expected.put(storageSlot(address, 257), Bytes32.random(random));
+      entries.put(TrieKeyDerivation.getTreeKeyForBasicData(address), Bytes32.random(random));
+      entries.put(TrieKeyDerivation.getTreeKeyForCodeHash(address), Bytes32.random(random));
+      entries.put(storageSlot(address, 256), Bytes32.random(random));
+      entries.put(storageSlot(address, 257), Bytes32.random(random));
     }
-    expected.forEach(
-        (key, value) -> {
-          parallelTrie.put(key, value);
-          sequentialTrie.put(key, value);
-        });
-    parallelTrie.commit(parallelUpdater);
-    sequentialTrie.commit(sequentialUpdater);
+    entries.forEach(this::putBoth);
+    commitBoth();
 
     // Header slot 0 (sub-index 64) and storage slot 384 (0x80) leave those prefixes.
     final Map<Bytes, Bytes32> batch = new HashMap<>();
@@ -354,30 +371,47 @@ class ParallelTrieTest {
       batch.put(storageSlot(address, 257), Bytes32.random(random));
       batch.put(storageSlot(address, 384), Bytes32.random(random));
     }
-    batch.forEach(
-        (key, value) -> {
-          parallelTrie.put(key, value);
-          sequentialTrie.put(key, value);
-        });
-    expected.putAll(batch);
-    parallelTrie.commit(parallelUpdater);
-    sequentialTrie.commit(sequentialUpdater);
+    batch.forEach(this::putBoth);
+    entries.putAll(batch);
+    commitBoth();
 
-    assertThat(parallelTrie.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
-    assertThat(parallelUpdater.storage).isEqualTo(sequentialUpdater.storage);
-    final ParallelStoredPartitionedBinaryTrie reloaded =
-        new ParallelStoredPartitionedBinaryTrie(parallelLoader, parallelTrie.getRootHash());
-    expected.forEach((key, value) -> assertThat(reloaded.get(key)).contains(value));
+    assertReloadReads(entries);
+  }
+
+  @Test
+  void updatesLeavingOnePrefixAtSeveralBitsMatchSequential() {
+    // Sub-indices 0 and 1 share seven bits; 0x10, 0x40 and 0x80 each leave them at another bit.
+    final Random random = new Random(31);
+    final Map<Bytes, Bytes32> entries = new HashMap<>();
+    final List<Bytes32> addresses = new ArrayList<>();
+    for (int i = 0; i < 30; i++) {
+      final Bytes32 address = Bytes32.random(random);
+      addresses.add(address);
+      entries.put(storageSlot(address, 256), Bytes32.random(random));
+      entries.put(storageSlot(address, 257), Bytes32.random(random));
+    }
+    entries.forEach(this::putBoth);
+    commitBoth();
+
+    for (final Bytes32 address : addresses) {
+      for (final int slot : new int[] {257, 256 + 0x10, 256 + 0x40, 256 + 0x80}) {
+        final Bytes32 value = Bytes32.random(random);
+        putBoth(storageSlot(address, slot), value);
+        entries.put(storageSlot(address, slot), value);
+      }
+    }
+    commitBoth();
+
+    assertReloadReads(entries);
   }
 
   @Test
   void splitPrefixCollapsesWhenASideEndsEmpty() {
     // Each batch splits the stems' prefixes, then leaves one side or both empty.
-    final Random random = new Random(29);
-    final List<Function<Bytes32, Map<Bytes, Optional<Bytes32>>>> batches =
+    final List<BiFunction<Bytes32, Random, Map<Bytes, Optional<Bytes32>>>> batches =
         List.of(
             // Nothing lands on the new side.
-            address ->
+            (address, random) ->
                 Map.of(
                     TrieKeyDerivation.getTreeKeyForBasicData(address),
                     Optional.of(Bytes32.random(random)),
@@ -388,7 +422,7 @@ class ParallelTrieTest {
                     storageSlot(address, 384),
                     Optional.empty()),
             // The original side empties.
-            address ->
+            (address, random) ->
                 Map.of(
                     TrieKeyDerivation.getTreeKeyForBasicData(address),
                     Optional.empty(),
@@ -403,7 +437,7 @@ class ParallelTrieTest {
                     storageSlot(address, 384),
                     Optional.of(Bytes32.random(random))),
             // Both sides end empty.
-            address ->
+            (address, random) ->
                 Map.of(
                     TrieKeyDerivation.getTreeKeyForBasicData(address),
                     Optional.empty(),
@@ -419,351 +453,122 @@ class ParallelTrieTest {
                     Optional.empty()));
 
     for (int c = 0; c < batches.size(); c++) {
-      final NodeUpdaterMock parallelStore = new NodeUpdaterMock();
-      final NodeUpdaterMock sequentialStore = new NodeUpdaterMock();
-      final NodeLoaderMock parallelReader = new NodeLoaderMock(parallelStore);
-      final ParallelStoredPartitionedBinaryTrie parallel =
-          new ParallelStoredPartitionedBinaryTrie(parallelReader);
-      final StoredPartitionedBinaryTrie sequential =
-          new StoredPartitionedBinaryTrie(new NodeLoaderMock(sequentialStore));
+      setUp();
+      final Random random = new Random(29 + c);
       final List<Bytes32> addresses = new ArrayList<>();
-      final Map<Bytes, Bytes32> expected = new HashMap<>();
+      final Map<Bytes, Bytes32> entries = new HashMap<>();
       for (int i = 0; i < 20; i++) {
         final Bytes32 address = Bytes32.random(random);
         addresses.add(address);
-        expected.put(TrieKeyDerivation.getTreeKeyForBasicData(address), Bytes32.random(random));
-        expected.put(TrieKeyDerivation.getTreeKeyForCodeHash(address), Bytes32.random(random));
-        expected.put(storageSlot(address, 256), Bytes32.random(random));
-        expected.put(storageSlot(address, 257), Bytes32.random(random));
+        entries.put(TrieKeyDerivation.getTreeKeyForBasicData(address), Bytes32.random(random));
+        entries.put(TrieKeyDerivation.getTreeKeyForCodeHash(address), Bytes32.random(random));
+        entries.put(storageSlot(address, 256), Bytes32.random(random));
+        entries.put(storageSlot(address, 257), Bytes32.random(random));
       }
-      expected.forEach(
-          (key, value) -> {
-            parallel.put(key, value);
-            sequential.put(key, value);
-          });
-      parallel.commit(parallelStore);
-      sequential.commit(sequentialStore);
+      entries.forEach(this::putBoth);
+      commitBoth();
 
       // Half the accounts take the batch.
       final Map<Bytes, Optional<Bytes32>> batch = new HashMap<>();
       for (int i = 0; i < addresses.size(); i += 2) {
-        batch.putAll(batches.get(c).apply(addresses.get(i)));
+        batch.putAll(batches.get(c).apply(addresses.get(i), random));
       }
       batch.forEach(
           (key, value) -> {
             if (value.isPresent()) {
-              parallel.put(key, value.get());
-              sequential.put(key, value.get());
-              expected.put(key, value.get());
+              putBoth(key, value.get());
+              entries.put(key, value.get());
             } else {
-              parallel.remove(key);
-              sequential.remove(key);
-              expected.remove(key);
+              removeBoth(key);
+              entries.remove(key);
             }
           });
-      parallel.commit(parallelStore);
-      sequential.commit(sequentialStore);
+      commitBoth();
 
-      assertThat(parallel.getRootHash()).as("case %d", c).isEqualTo(sequential.getRootHash());
-      assertThat(parallelStore.storage).as("case %d", c).isEqualTo(sequentialStore.storage);
-      final ParallelStoredPartitionedBinaryTrie reloaded =
-          new ParallelStoredPartitionedBinaryTrie(parallelReader, parallel.getRootHash());
-      expected.forEach((key, value) -> assertThat(reloaded.get(key)).contains(value));
+      assertReloadReads(entries);
       for (final Bytes key : batch.keySet()) {
-        if (!expected.containsKey(key)) {
-          assertThat(reloaded.get(key)).as("case %d", c).isEmpty();
+        if (!entries.containsKey(key)) {
+          assertThat(reloadParallel().get(key)).as("case %d", c).isEmpty();
         }
       }
     }
   }
 
-  private static Bytes storageSlot(final Bytes32 address, final long slot) {
-    return TrieKeyDerivation.getTreeKeyForStorageSlot(address, UInt256.valueOf(slot));
+  @Test
+  void batchRemovingAKeyAndAddingALongerOneAppliesTheRemovalFirst() {
+    final Bytes shortKey = Bytes.fromHexString("0x0100");
+    final Bytes longKey = Bytes.fromHexString("0x010005");
+    putBoth(shortKey, Bytes32.repeat((byte) 1));
+    commitBoth();
+
+    // The short key is a prefix of the long one, so it must go before the long one comes in.
+    removeBoth(shortKey);
+    putBoth(longKey, Bytes32.repeat((byte) 2));
+    commitBoth();
+
+    assertReloadReads(Map.of(longKey, Bytes32.repeat((byte) 2)));
+    assertThat(reloadParallel().get(shortKey)).isEmpty();
   }
 
   @Test
-  void flattenRemoveMatchesSequentialAndSpecAfterReload() {
-    // Same deep-prefix layout as TrieFlattenLocationOnlyTest: removing keyB forces flatten.
-    final Bytes keyA = Bytes.fromHexString("0x0000000000000000000000000000000000000001");
-    final Bytes keyB = Bytes.fromHexString("0x0000000000000000000000000000000000000002");
-    final Bytes keyC = Bytes.fromHexString("0x00000000000000000000000000000000000000ff");
-    final Bytes32 valueA = Bytes32.repeat((byte) 0x0A);
-    final Bytes32 valueB = Bytes32.repeat((byte) 0x0B);
-    final Bytes32 valueC = Bytes32.repeat((byte) 0x0C);
+  void stemJoinedByALongerKeyKeepsItsLeaves() {
+    final Map<Bytes, Bytes32> entries =
+        Map.of(
+            Bytes.fromHexString("0x0100"), Bytes32.repeat((byte) 1),
+            Bytes.fromHexString("0x0103"), Bytes32.repeat((byte) 2),
+            Bytes.fromHexString("0x010205"), Bytes32.repeat((byte) 3));
+    putBoth(Bytes.fromHexString("0x0100"), Bytes32.repeat((byte) 1));
+    putBoth(Bytes.fromHexString("0x0103"), Bytes32.repeat((byte) 2));
+    commitBoth();
+    putBoth(Bytes.fromHexString("0x010205"), Bytes32.repeat((byte) 3));
+    commitBoth();
 
-    parallelTrie.put(keyA, valueA);
-    parallelTrie.put(keyB, valueB);
-    parallelTrie.put(keyC, valueC);
-    sequentialTrie.put(keyA, valueA);
-    sequentialTrie.put(keyB, valueB);
-    sequentialTrie.put(keyC, valueC);
-    parallelTrie.commit(parallelUpdater);
-    sequentialTrie.commit(sequentialUpdater);
-    assertThat(parallelTrie.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
-
-    parallelTrie.remove(keyB);
-    sequentialTrie.remove(keyB);
-    parallelTrie.commit(parallelUpdater);
-    sequentialTrie.commit(sequentialUpdater);
-
-    final BinaryTrie spec = new BinaryTrie();
-    spec.put(keyA, valueA);
-    spec.put(keyB, valueB);
-    spec.put(keyC, valueC);
-    spec.remove(keyB);
-
-    assertThat(parallelTrie.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
-    assertThat(parallelTrie.getRootHash()).isEqualTo(spec.root());
-
-    final ParallelStoredPartitionedBinaryTrie reloaded =
-        new ParallelStoredPartitionedBinaryTrie(parallelLoader, parallelTrie.getRootHash());
-    assertThat(reloaded.get(keyA)).contains(valueA);
-    assertThat(reloaded.get(keyC)).contains(valueC);
-    assertThat(reloaded.get(keyB)).isEmpty();
-    assertThat(reloaded.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
+    assertReloadReads(entries);
   }
 
-  @Test
-  void flattenWithBranchSurvivorMatchesSequentialAfterReload() {
-    final Bytes keyA = keyWithFirstAndLastByte(21, 0xFF, 0x00);
-    final Bytes keyD = keyWithFirstAndLastByte(21, 0x00, 0x01);
-    final Bytes keyE = keyWithFirstAndLastByte(21, 0x00, 0x84);
-    final Bytes keyF = keyWithFirstAndLastByte(21, 0x00, 0xC4);
-    final Bytes32 valueA = Bytes32.repeat((byte) 0x0A);
-    final Bytes32 valueD = Bytes32.repeat((byte) 0x0D);
-    final Bytes32 valueE = Bytes32.repeat((byte) 0x0E);
-    final Bytes32 valueF = Bytes32.repeat((byte) 0x0F);
-
-    for (final var entry :
-        List.of(
-            Map.entry(keyA, valueA),
-            Map.entry(keyD, valueD),
-            Map.entry(keyE, valueE),
-            Map.entry(keyF, valueF))) {
-      parallelTrie.put(entry.getKey(), entry.getValue());
-      sequentialTrie.put(entry.getKey(), entry.getValue());
-    }
-    parallelTrie.commit(parallelUpdater);
-    sequentialTrie.commit(sequentialUpdater);
-
-    parallelTrie.remove(keyD);
-    sequentialTrie.remove(keyD);
-    parallelTrie.commit(parallelUpdater);
-    sequentialTrie.commit(sequentialUpdater);
-
-    final BinaryTrie spec = new BinaryTrie();
-    spec.put(keyA, valueA);
-    spec.put(keyD, valueD);
-    spec.put(keyE, valueE);
-    spec.put(keyF, valueF);
-    spec.remove(keyD);
-
-    assertThat(parallelTrie.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
-    assertThat(parallelTrie.getRootHash()).isEqualTo(spec.root());
-
-    final ParallelStoredPartitionedBinaryTrie reloaded =
-        new ParallelStoredPartitionedBinaryTrie(parallelLoader, parallelTrie.getRootHash());
-    assertThat(reloaded.get(keyA)).contains(valueA);
-    assertThat(reloaded.get(keyE)).contains(valueE);
-    assertThat(reloaded.get(keyF)).contains(valueF);
-    assertThat(reloaded.get(keyD)).isEmpty();
-    assertThat(reloaded.getRootHash()).isEqualTo(spec.root());
-  }
-
-  @Test
-  void shouldBatchRemoveAfterCommit() {
-    for (int i = 1; i <= 10; i++) {
-      parallelTrie.put(createKey(i), createValue(i));
-      sequentialTrie.put(createKey(i), createValue(i));
-    }
-    parallelTrie.commit(parallelUpdater);
-    sequentialTrie.commit(sequentialUpdater);
-
-    for (int i = 1; i <= 10; i++) {
-      parallelTrie.remove(createKey(i));
-      sequentialTrie.remove(createKey(i));
-    }
-    parallelTrie.commit(parallelUpdater);
-    sequentialTrie.commit(sequentialUpdater);
-
-    for (int i = 1; i <= 10; i++) {
-      assertThat(parallelTrie.get(createKey(i))).isEmpty();
-    }
-    assertThat(parallelTrie.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
-  }
-
-  @Test
-  void shouldHandleMixedOperationsOnKeys() {
-    final int numKeys = 50;
-    final Bytes[] keys = new Bytes[numKeys];
-
-    for (int i = 0; i < numKeys; i++) {
-      keys[i] = createKey(i + 1);
-      parallelTrie.put(keys[i], createValue(i));
-      sequentialTrie.put(keys[i], createValue(i));
-    }
-    parallelTrie.commit(parallelUpdater);
-    sequentialTrie.commit(sequentialUpdater);
-
-    for (int i = 0; i < 20; i++) {
-      parallelTrie.remove(keys[i]);
-      sequentialTrie.remove(keys[i]);
-    }
-
-    for (int i = 20; i < 35; i++) {
-      parallelTrie.put(keys[i], createValue(i * 10));
-      sequentialTrie.put(keys[i], createValue(i * 10));
-    }
-
-    parallelTrie.commit(parallelUpdater);
-    sequentialTrie.commit(sequentialUpdater);
-
-    for (int i = 0; i < 20; i++) {
-      assertThat(parallelTrie.get(keys[i])).isEmpty();
-    }
-    for (int i = 20; i < 35; i++) {
-      assertThat(parallelTrie.get(keys[i])).contains(createValue(i * 10));
-    }
-    for (int i = 35; i < numKeys; i++) {
-      assertThat(parallelTrie.get(keys[i])).contains(createValue(i));
-    }
-
-    assertThat(parallelTrie.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
-  }
-
-  @ParameterizedTest
-  @ValueSource(ints = {1, 10, 50, 100, 200})
-  void shouldHandleVariousKeyBatchSizes(final int size) {
-    for (int i = 1; i <= size; i++) {
-      final Bytes key = createKey(i);
-      final Bytes32 value = createValue(i);
-      parallelTrie.put(key, value);
-      sequentialTrie.put(key, value);
-    }
-
-    parallelTrie.commit(parallelUpdater);
-    sequentialTrie.commit(sequentialUpdater);
-
-    for (int i = 1; i <= size; i++) {
-      assertThat(parallelTrie.get(createKey(i))).contains(createValue(i));
-    }
-
-    assertThat(parallelTrie.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
-  }
-
-  @Test
-  void shouldPutDeferredUpdateAndRemove() {
-    final Bytes key = Bytes.fromHexString("0x01020304");
-    final Bytes32 value = createValue(100);
-    final Bytes32 updatedValue = createValue(200);
-
+  private void putBoth(final Bytes key, final Bytes32 value) {
     parallelTrie.put(key, value);
     sequentialTrie.put(key, value);
+  }
+
+  private void removeBoth(final Bytes key) {
+    parallelTrie.remove(key);
+    sequentialTrie.remove(key);
+  }
+
+  /** Commits both tries: same root, same entries written. */
+  private void commitBoth() {
     parallelTrie.commit(parallelUpdater);
     sequentialTrie.commit(sequentialUpdater);
-
-    parallelTrie.putDeferred(key, prior -> Optional.of(updatedValue));
-    sequentialTrie.putDeferred(key, prior -> Optional.of(updatedValue));
-    parallelTrie.commit(parallelUpdater);
-    sequentialTrie.commit(sequentialUpdater);
-
-    assertThat(parallelTrie.get(key)).contains(updatedValue);
     assertThat(parallelTrie.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
-
-    parallelTrie.putDeferred(key, prior -> Optional.empty());
-    sequentialTrie.putDeferred(key, prior -> Optional.empty());
-    parallelTrie.commit(parallelUpdater);
-    sequentialTrie.commit(sequentialUpdater);
-
-    assertThat(parallelTrie.get(key)).isEmpty();
-    assertThat(parallelTrie.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
+    assertThat(parallelUpdater.storage).isEqualTo(sequentialUpdater.storage);
   }
 
-  @Test
-  void shouldLoadStoredKeys() {
-    final int numKeys = 10;
-    final Bytes[] keys = new Bytes[numKeys];
-
-    for (int i = 0; i < numKeys; i++) {
-      keys[i] = createKey(i + 1);
-      parallelTrie.put(keys[i], createValue(i));
-    }
-    parallelTrie.commit(parallelUpdater);
-
-    final Bytes32 rootHash = parallelTrie.getRootHash();
-    final ParallelStoredPartitionedBinaryTrie reloaded =
-        new ParallelStoredPartitionedBinaryTrie(parallelLoader, rootHash);
-
-    for (int i = 0; i < numKeys; i++) {
-      assertThat(reloaded.get(keys[i])).contains(createValue(i));
-    }
+  /** The parallel trie reopened through its root location. */
+  private ParallelStoredPartitionedBinaryTrie reloadParallel() {
+    return new ParallelStoredPartitionedBinaryTrie(parallelLoader);
   }
 
-  @Test
-  void shouldProduceConsistentRootHashAcrossMultipleBuilds() {
-    final int numKeys = 50;
-    final Bytes[] keys = new Bytes[numKeys];
-    for (int i = 0; i < numKeys; i++) {
-      keys[i] = createKey(i + 1);
-    }
-
-    final Bytes32[] rootHashes = new Bytes32[3];
-
-    for (int iteration = 0; iteration < 3; iteration++) {
-      final NodeUpdaterMock freshUpdater = new NodeUpdaterMock();
-      final NodeLoaderMock freshLoader = new NodeLoaderMock(freshUpdater);
-      final ParallelStoredPartitionedBinaryTrie freshTrie =
-          new ParallelStoredPartitionedBinaryTrie(freshLoader);
-
-      for (int i = 0; i < numKeys; i++) {
-        freshTrie.put(keys[i], createValue(i));
-      }
-      freshTrie.commit(freshUpdater);
-      rootHashes[iteration] = freshTrie.getRootHash();
-    }
-
-    assertThat(rootHashes[0]).isEqualTo(rootHashes[1]);
-    assertThat(rootHashes[1]).isEqualTo(rootHashes[2]);
+  /** Root of the reopened parallel trie against the spec, and every expected value. */
+  private void assertReloadReads(final Map<Bytes, Bytes32> expected) {
+    final BinaryTrie spec = new BinaryTrie();
+    expected.forEach(spec::put);
+    final ParallelStoredPartitionedBinaryTrie reloaded = reloadParallel();
+    assertThat(reloaded.getRootHash()).isEqualTo(spec.root());
+    expected.forEach(
+        (key, value) -> assertThat(reloaded.get(key)).as("key %s", key).contains(value));
   }
 
-  @Test
-  void visitAllParallelCompletes() throws Exception {
-    for (int i = 1; i <= 10; i++) {
-      parallelTrie.put(createKey(i), createValue(i));
-    }
-    parallelTrie.commit(parallelUpdater);
-
-    final List<PartitionedBinaryTrie.TrieNodeView> visited = new ArrayList<>();
-    parallelTrie.visitAll(visited::add, Executors.newFixedThreadPool(2)).get();
-
-    assertThat(visited).isNotEmpty();
-    assertThat(visited.stream().anyMatch(PartitionedBinaryTrie.TrieNodeView::isLeaf)).isTrue();
-  }
-
-  @Test
-  void factoryCreatesParallelTrie() {
-    final PartitionedBinaryTrieFactory factory = new PartitionedBinaryTrieFactory(parallelLoader);
-    final ParallelStoredPartitionedBinaryTrie trie = factory.createParallel();
-    assertThat(trie.getRootHash()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
-  }
-
+  /** Four-byte keys spread over the key space, so that they fall in different stems. */
   private static Bytes createKey(final int seed) {
-    return Bytes.of(
-        (byte) ((seed >> 24) & 0xFF),
-        (byte) ((seed >> 16) & 0xFF),
-        (byte) ((seed >> 8) & 0xFF),
-        (byte) (seed & 0xFF));
-  }
-
-  private static Bytes keyWithFirstAndLastByte(
-      final int length, final int firstByte, final int lastByte) {
-    final byte[] key = new byte[length];
-    key[0] = (byte) firstByte;
-    key[length - 1] = (byte) lastByte;
-    return Bytes.wrap(key);
+    return Bytes.ofUnsignedInt(Integer.toUnsignedLong(seed * 0x9E3779B1));
   }
 
   private static Bytes32 createValue(final int value) {
     return Bytes32.repeat((byte) (value & 0xFF));
+  }
+
+  private static Bytes storageSlot(final Bytes32 address, final long slot) {
+    return TrieKeyDerivation.getTreeKeyForStorageSlot(address, UInt256.valueOf(slot));
   }
 }

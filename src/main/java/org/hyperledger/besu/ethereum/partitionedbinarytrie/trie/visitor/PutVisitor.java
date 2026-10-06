@@ -24,7 +24,6 @@ import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.LeafNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.StoredTrieNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.TrieNode;
 
-import java.util.Arrays;
 import java.util.Optional;
 import java.util.function.UnaryOperator;
 
@@ -87,12 +86,11 @@ public class PutVisitor implements PathNodeVisitor {
   @Override
   public TrieNode visit(final BranchNode branchNode, final TrieKey key, final int depth) {
     final int keyBits = key.bitCount();
-    final byte[] prefixBits = branchNode.prefixBits();
     final int prefixLen = branchNode.prefixLength();
     int matched = 0;
     while (matched < prefixLen
         && depth + matched < keyBits
-        && key.bitAt(depth + matched) == prefixBits[matched]) {
+        && key.bitAt(depth + matched) == branchNode.prefixBit(matched)) {
       matched++;
     }
     if (matched == prefixLen) {
@@ -108,13 +106,10 @@ public class PutVisitor implements PathNodeVisitor {
       final int split = depth + prefixLen;
       final int childBit = key.bitAt(split);
       beforeDescendChild(branchNode, key, split, childBit);
-      if (childBit == 0) {
-        branchNode.setLeftChild(branchNode.leftChild().accept(this, key, split + 1));
-      } else {
-        branchNode.setRightChild(branchNode.rightChild().accept(this, key, split + 1));
-      }
-      branchNode.markDirty();
-      return branchNode;
+      final boolean right = childBit == 1;
+      final TrieNode child = right ? branchNode.rightChild() : branchNode.leftChild();
+      // A merger can remove the leaf below: the branch then collapses as on a remove.
+      return branchNode.replaceChild(right, child.accept(this, key, split + 1), true);
     }
 
     final int divergence = matched;
@@ -208,7 +203,7 @@ public class PutVisitor implements PathNodeVisitor {
       // would make the trie ambiguous and violates EIP-8297's prefix-free key requirement.
       throw new IllegalArgumentException("Insert violates prefix-freedom");
     }
-    final byte[] prefix = ByteTrieOps.expandBits(key.bytes(), depth, depth + run);
+    final byte[] prefix = ByteTrieOps.sliceBits(key.bytes(), depth, depth + run);
     final TrieNode newLeaf = newNode(key, value, depth + run + 1);
     final TrieNode oldLeaf =
         new LeafNode(leafNode.keyBytes(), leafNode.keyLength(), leafNode.valueBytes(), false);
@@ -234,10 +229,10 @@ public class PutVisitor implements PathNodeVisitor {
 
     // The key diverges inside this branch's compressed prefix. Keep the unmatched suffix and both
     // existing children under a survivor branch, then place that survivor beside the new leaf.
-    final byte[] prefixBits = branchNode.prefixBits();
+    final byte[] prefix = branchNode.prefix();
     final TrieNode survivor =
         new BranchNode(
-            Arrays.copyOfRange(prefixBits, matched + 1, branchNode.prefixLength()),
+            ByteTrieOps.sliceBits(prefix, matched + 1, branchNode.prefixLength()),
             branchNode.prefixLength() - matched - 1,
             branchNode.leftChild(),
             branchNode.rightChild(),
@@ -247,14 +242,14 @@ public class PutVisitor implements PathNodeVisitor {
     validateSplitDirection(newLeafBit);
     if (newLeafBit == 0) {
       return new BranchNode(
-          Arrays.copyOf(prefixBits, matched),
+          ByteTrieOps.sliceBits(prefix, 0, matched),
           matched,
           leaf,
           mapAttachedSibling(survivor, key, depth + matched, 1),
           false);
     }
     return new BranchNode(
-        Arrays.copyOf(prefixBits, matched),
+        ByteTrieOps.sliceBits(prefix, 0, matched),
         matched,
         mapAttachedSibling(survivor, key, depth + matched, 0),
         leaf,

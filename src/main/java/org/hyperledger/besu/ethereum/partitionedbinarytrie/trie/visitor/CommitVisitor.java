@@ -63,7 +63,8 @@ public class CommitVisitor implements LocationNodeVisitor {
       // Nothing below this branch changed since the last commit.
       return;
     }
-    final Optional<List<LeafNode>> stem = stemLeaves(branchNode, location.size());
+    final Optional<List<LeafNode>> stem =
+        stemLeaves(branchNode, TrieNodeCodec.locationDepth(location));
     if (stem.isPresent()) {
       storeStem(location, branchNode, stem.get());
       return;
@@ -72,16 +73,14 @@ public class CommitVisitor implements LocationNodeVisitor {
     // bit. Children are committed first so the branch can store their final merkle hashes.
     commitChildren(
         branchNode.leftChild(),
-        TrieNodeCodec.childLocation(
-            location, branchNode.prefixBits(), branchNode.prefixLength(), 0),
+        TrieNodeCodec.childLocation(location, branchNode.prefix(), branchNode.prefixLength(), 0),
         branchNode.rightChild(),
-        TrieNodeCodec.childLocation(
-            location, branchNode.prefixBits(), branchNode.prefixLength(), 1));
+        TrieNodeCodec.childLocation(location, branchNode.prefix(), branchNode.prefixLength(), 1));
     nodeUpdater.store(
         location,
         Bytes32.wrap(branchNode.merkleHashBytes()),
         TrieNodeCodec.encodeBranch(
-            branchNode.prefixBits(),
+            branchNode.prefix(),
             branchNode.prefixLength(),
             branchNode.leftChild().merkleHashBytes(),
             branchNode.rightChild().merkleHashBytes()));
@@ -116,7 +115,9 @@ public class CommitVisitor implements LocationNodeVisitor {
         location,
         Bytes32.wrap(top.merkleHashBytes()),
         TrieNodeCodec.encodeStem(first.keyBytes(), stemLen, suffixes, values));
-    markClean(top);
+    // The nodes below have no entry of their own: they stay dirty, and are stored one by one if
+    // the top is ever stored as a plain branch.
+    top.markClean();
   }
 
   /** The leaves of {@code branch} if it splits inside their last key byte: a stem. */
@@ -137,14 +138,5 @@ public class CommitVisitor implements LocationNodeVisitor {
     return node instanceof BranchNode branch
         && collectLeaves(branch.leftChild(), keyLen, leaves)
         && collectLeaves(branch.rightChild(), keyLen, leaves);
-  }
-
-  /** Marks a stem subtree as persisted. */
-  private static void markClean(final TrieNode node) {
-    node.markClean();
-    if (node instanceof BranchNode branch) {
-      markClean(branch.leftChild());
-      markClean(branch.rightChild());
-    }
   }
 }

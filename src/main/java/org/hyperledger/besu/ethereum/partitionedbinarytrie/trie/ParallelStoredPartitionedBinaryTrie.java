@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie;
 
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.bytes.ByteTrieOps;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKey;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.StoredTrieNodeFactory;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.BranchNode;
@@ -28,6 +29,7 @@ import org.hyperledger.besu.ethereum.trie.NodeUpdater;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -168,6 +170,9 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
       pendingUpdates.forEach(
           (keyBytes, update) ->
               entries.add(update.toEntry(keyBytes.toArrayUnsafe(), keyBytes.size())));
+      // Removals first, as the batch order is lost: a key can then give way to a longer or shorter
+      // key sharing its bits, as in a sequential trie.
+      entries.sort(Comparator.comparing(entry -> entry.isMerge() || entry.value().isPresent()));
       this.root = forkJoinPool.invoke(ForkJoinTask.adapt(() -> processNode(root, 0, entries)));
     } finally {
       pendingUpdates.clear();
@@ -198,17 +203,17 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
   private TrieNode handleBranchNode(
       final BranchNode branchNode, final int depth, final List<UpdateEntry> updates) {
 
-    final byte[] prefixBits = branchNode.prefixBits();
+    final byte[] prefix = branchNode.prefix();
     final int prefixLen = branchNode.prefixLength();
 
     // Find the earliest prefix bit that not all updates still follow (some update either
     // diverges or runs out of key bits before the prefix ends).
-    final int divergenceIndex = findDivergenceInPrefix(updates, depth, prefixBits, prefixLen);
+    final int divergenceIndex = findDivergenceInPrefix(updates, depth, prefix, prefixLen);
     if (divergenceIndex < prefixLen) {
       // An update leaves the prefix. A single one goes through the sequential visitor.
       if (updates.size() > 1) {
         return splitPrefixAtDivergence(
-            branchNode, prefixBits, prefixLen, divergenceIndex, depth, updates);
+            branchNode, prefix, prefixLen, divergenceIndex, depth, updates);
       }
       return applyUpdatesSequentially(branchNode, depth, updates);
     }
@@ -277,30 +282,30 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
    */
   private TrieNode splitPrefixAtDivergence(
       final BranchNode branchNode,
-      final byte[] prefixBits,
+      final byte[] prefix,
       final int prefixLen,
       final int divergenceIndex,
       final int depth,
       final List<UpdateEntry> updates) {
     final TrieNode continuation =
         new BranchNode(
-            Arrays.copyOfRange(prefixBits, divergenceIndex + 1, prefixLen),
+            ByteTrieOps.sliceBits(prefix, divergenceIndex + 1, prefixLen),
             prefixLen - divergenceIndex - 1,
             branchNode.leftChild(),
             branchNode.rightChild(),
             false);
-    final byte[] commonPrefix = Arrays.copyOf(prefixBits, divergenceIndex);
+    final byte[] commonPrefix = ByteTrieOps.sliceBits(prefix, 0, divergenceIndex);
     final BranchNode split =
-        prefixBits[divergenceIndex] == 0
+        ByteTrieOps.bitAt(prefix, divergenceIndex) == 0
             ? new BranchNode(commonPrefix, divergenceIndex, continuation, TrieNode.empty(), false)
             : new BranchNode(commonPrefix, divergenceIndex, TrieNode.empty(), continuation, false);
     return handleBranchNode(split, depth, updates);
   }
 
   /**
-   * Returns the first index in {@code prefixBits} where some update diverges or runs out of key
-   * bits, relative to {@code baseDepth}. Returns {@code prefixLen} when the whole prefix matches
-   * every update.
+   * Returns the first index in {@code prefix} where some update diverges or runs out of key bits,
+   * relative to {@code baseDepth}. Returns {@code prefixLen} when the whole prefix matches every
+   * update.
    *
    * <p>The outer loop walks each prefix bit; the inner loop scans all updates for that bit and
    * returns early on the first mismatch (either a differing bit, or a key that has already ended).
@@ -309,12 +314,12 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
   private int findDivergenceInPrefix(
       final List<UpdateEntry> updates,
       final int baseDepth,
-      final byte[] prefixBits,
+      final byte[] prefix,
       final int prefixLen) {
 
     for (int i = 0; i < prefixLen; i++) {
       final int absolutePosition = baseDepth + i;
-      final byte prefixBit = prefixBits[i];
+      final byte prefixBit = ByteTrieOps.bitAt(prefix, i);
 
       for (final UpdateEntry update : updates) {
         // Short key: this update ends inside the prefix, so it diverges here.

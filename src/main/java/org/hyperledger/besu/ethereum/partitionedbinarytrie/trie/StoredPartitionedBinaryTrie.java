@@ -52,7 +52,7 @@ public class StoredPartitionedBinaryTrie extends PartitionedBinaryTrie {
     super(
         rootHash.equals(Bytes32.ZERO)
             ? TrieNode.empty()
-            : nodeFactory.wrapStored(org.apache.tuweni.bytes.Bytes.EMPTY, rootHash));
+            : nodeFactory.wrapStored(Bytes.EMPTY, rootHash));
     this.nodeFactory = nodeFactory;
   }
 

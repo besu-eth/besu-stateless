@@ -27,7 +27,6 @@ import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.StoredTrieN
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.TrieNode;
 import org.hyperledger.besu.ethereum.trie.NodeUpdater;
 
-import java.util.Arrays;
 import java.util.Optional;
 import java.util.function.IntFunction;
 
@@ -155,8 +154,6 @@ public final class AscendingCollapsePutVisitor extends PutVisitor {
 
   /** Storage location of a split's child: the key's first {@code split} bits, then {@code side}. */
   public static Bytes childLocation(final TrieKey key, final int split, final int side) {
-    final byte[] path = Arrays.copyOf(ByteTrieOps.expandBits(key.bytes(), 0, split), split + 1);
-    path[split] = (byte) side;
-    return Bytes.wrap(path);
+    return TrieNodeCodec.childLocation(Bytes.EMPTY, key.bytes(), split, side);
   }
 }

@@ -28,15 +28,14 @@ import org.apache.tuweni.bytes.Bytes;
  * <p>Structure:
  *
  * <pre>
- *   prefixBits[0 .. prefixLen)   shared key bits before the split
- *              |
- *              +-- bit 0 --> left child
- *              +-- bit 1 --> right child
+ *   prefix[0 .. prefixLen)   shared key bits before the split, packed MSB-first
+ *          |
+ *          +-- bit 0 --> left child
+ *          +-- bit 1 --> right child
  * </pre>
  *
- * <p>{@code prefixBits} is expanded in memory ({@code 0} or {@code 1} per element). Callers pass a
- * {@link TrieKey} whose bits ({@link TrieKey#bitAt}) are matched starting at {@code depth}, then
- * descend using {@link TrieKey#bitAt(int)} at {@code depth + prefixLen}.
+ * <p>Callers pass a {@link TrieKey} whose bits ({@link TrieKey#bitAt}) are matched starting at
+ * {@code depth}, then descend using {@link TrieKey#bitAt(int)} at {@code depth + prefixLen}.
  *
  * <p>On disk ({@link TrieNodeCodec#encodeBranch}), only {@code prefixLen} (in bits) and the packed
  * prefix are stored with left/right child hashes, and only above the stems. Children may be {@link
@@ -46,8 +45,8 @@ import org.apache.tuweni.bytes.Bytes;
  */
 public final class BranchNode extends TrieNode {
 
-  /** Expanded prefix bits ({@code 0} or {@code 1} per element). */
-  private final byte[] prefixBits;
+  /** Prefix bits packed MSB-first, zero-padded to whole bytes. */
+  private final byte[] prefix;
 
   /** Number of prefix bits (not bytes); see {@link #prefixLength()}. */
   private final int prefixLen;
@@ -62,20 +61,20 @@ public final class BranchNode extends TrieNode {
   private byte[] hash;
 
   /**
-   * @param prefixBits expanded prefix bits ({@code 0} or {@code 1} per element)
-   * @param prefixLen number of prefix bits to use from {@code prefixBits}
+   * @param prefix prefix bits packed MSB-first, zero-padded to whole bytes
+   * @param prefixLen number of prefix bits
    * @param left child reached when the split bit is {@code 0}
    * @param right child reached when the split bit is {@code 1}
    * @param clean {@code true} if loaded from storage and not yet modified
    */
   public BranchNode(
-      final byte[] prefixBits,
+      final byte[] prefix,
       final int prefixLen,
       final TrieNode left,
       final TrieNode right,
       final boolean clean) {
     super(clean);
-    this.prefixBits = prefixBits;
+    this.prefix = prefix;
     this.prefixLen = prefixLen;
     this.left = left;
     this.right = right;
@@ -117,10 +116,8 @@ public final class BranchNode extends TrieNode {
       // Branch below branch with no sibling payload: concatenate compressed prefixes through the
       // split bit and reuse the survivor's two children.
       final int mergedLen = prefixLen + 1 + branch.prefixLen;
-      final byte[] merged = new byte[mergedLen];
-      System.arraycopy(prefixBits, 0, merged, 0, prefixLen);
-      merged[prefixLen] = splitBit;
-      System.arraycopy(branch.prefixBits, 0, merged, prefixLen + 1, branch.prefixLen);
+      final byte[] merged =
+          ByteTrieOps.concatBits(prefix, prefixLen, splitBit, branch.prefix, branch.prefixLen);
       return new BranchNode(merged, mergedLen, branch.leftChild(), branch.rightChild(), false);
     }
     // Leaf (or empty) survivor: it is hoisted to a shallower location without changing its own
@@ -142,7 +139,7 @@ public final class BranchNode extends TrieNode {
     if (hash == null) {
       hash =
           ByteTrieOps.branchHash(
-              prefixBits, prefixLen, left.merkleHashBytes(), right.merkleHashBytes());
+              prefix, prefixLen, left.merkleHashBytes(), right.merkleHashBytes());
     }
     return hash;
   }
@@ -150,7 +147,7 @@ public final class BranchNode extends TrieNode {
   @Override
   public Bytes encode() {
     return TrieNodeCodec.encodeBranch(
-        prefixBits, prefixLen, left.merkleHashBytes(), right.merkleHashBytes());
+        prefix, prefixLen, left.merkleHashBytes(), right.merkleHashBytes());
   }
 
   @Override
@@ -163,8 +160,14 @@ public final class BranchNode extends TrieNode {
     visitor.visit(location, this);
   }
 
-  public byte[] prefixBits() {
-    return prefixBits;
+  /** Prefix bits packed MSB-first, zero-padded to whole bytes. */
+  public byte[] prefix() {
+    return prefix;
+  }
+
+  /** Bit {@code index} of the prefix ({@code 0} or {@code 1}). */
+  public byte prefixBit(final int index) {
+    return ByteTrieOps.bitAt(prefix, index);
   }
 
   public int prefixLength() {

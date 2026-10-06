@@ -15,16 +15,10 @@
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.proof;
 
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.TrieNodeCodec;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.bytes.ByteTrieOps;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieConstants;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKey;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.BranchNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.LeafNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.TrieNode;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor.GetVisitor;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor.LocationNodeVisitor;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor.PathNodeVisitor;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor.ProofVisitor;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -33,168 +27,76 @@ import java.util.Optional;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
-/**
- * Verifies partitioned binary trie proofs against an expected root hash.
- *
- * <p>Proof nodes are canonical encoded trie nodes ({@link TrieNodeCodec}) indexed by BLAKE3 merkle
- * hash, matching the proof format produced by {@link ProofVisitor}.
- */
+/** Verifies partitioned binary trie proofs by following the key from the root hash. */
 public final class TrieNodeProofVerifier {
 
   private TrieNodeProofVerifier() {}
 
   /**
-   * Verifies that proof nodes reconstruct to {@code expectedRoot}.
+   * Follows {@code key} from {@code root} through {@code proofNodes}, each of which must hash to
+   * what its parent holds.
    *
-   * @param expectedRoot trie root hash to validate
-   * @param proofNodes ordered encoded proof nodes
-   * @return {@code true} when the proof nodes hash to the expected root
+   * @param root trie root hash
+   * @param key lookup key
+   * @param proofNodes encoded proof nodes
+   * @return the value of the key, or empty when the proof shows it absent
+   * @throws IllegalArgumentException when the proof lacks a node of the path
    */
-  public static boolean verifyRoot(final Bytes32 expectedRoot, final List<Bytes> proofNodes) {
-    if (expectedRoot.equals(TrieConstants.EMPTY_TRIE_ROOT)) {
-      return proofNodes.isEmpty();
+  public static Optional<Bytes32> verify(
+      final Bytes32 root, final Bytes key, final List<Bytes> proofNodes) {
+    final Map<Bytes32, byte[]> nodesByHash = new HashMap<>();
+    for (final Bytes node : proofNodes) {
+      nodesByHash.put(hash(node.toArrayUnsafe()), node.toArrayUnsafe());
     }
-    final Map<Bytes32, Bytes> nodesByHash = indexProofNodes(proofNodes);
-    final Bytes rootEncoded = nodesByHash.get(expectedRoot);
-    if (rootEncoded == null) {
-      return false;
-    }
-    final TrieNode root = decodeFromProof(Bytes.EMPTY, rootEncoded, nodesByHash);
-    return Bytes32.wrap(root.merkleHashBytes()).equals(expectedRoot);
-  }
-
-  /**
-   * Verifies a proof and returns the value at {@code key} when the root matches.
-   *
-   * @param expectedRoot trie root hash to validate
-   * @param key lookup key bytes
-   * @param keyLen valid key length
-   * @param proofNodes ordered encoded proof nodes
-   * @return outer empty when the proof is invalid; otherwise inner optional for the key value
-   */
-  public static Optional<Optional<byte[]>> verifyAndGetValue(
-      final Bytes32 expectedRoot,
-      final byte[] key,
-      final int keyLen,
-      final List<Bytes> proofNodes) {
-    if (!verifyRoot(expectedRoot, proofNodes)) {
-      return Optional.empty();
-    }
-    if (expectedRoot.equals(TrieConstants.EMPTY_TRIE_ROOT)) {
-      return Optional.of(Optional.empty());
-    }
-    final Map<Bytes32, Bytes> nodesByHash = indexProofNodes(proofNodes);
-    final TrieNode root = decodeFromProof(Bytes.EMPTY, nodesByHash.get(expectedRoot), nodesByHash);
-    return Optional.of(root.accept(new GetVisitor(), TrieKey.of(key, keyLen), 0).leafValue());
-  }
-
-  private static Map<Bytes32, Bytes> indexProofNodes(final List<Bytes> proofNodes) {
-    final Map<Bytes32, Bytes> nodesByHash = new HashMap<>();
-    for (final Bytes encoded : proofNodes) {
-      if (encoded.isEmpty()) {
-        continue;
+    final byte[] keyBytes = key.toArrayUnsafe();
+    final int keyBits = keyBytes.length * Byte.SIZE;
+    Bytes32 hash = root;
+    int depth = 0;
+    while (!hash.equals(TrieConstants.EMPTY_TRIE_ROOT)) {
+      final byte[] node = nodesByHash.get(hash);
+      if (node == null) {
+        throw new IllegalArgumentException("proof lacks node " + hash);
       }
-      final TrieNode node = decodeLeafOrBranchOnly(encoded);
-      nodesByHash.put(Bytes32.wrap(node.merkleHashBytes()), encoded);
+      if (node[0] == TrieNodeCodec.LEAF_TAG) {
+        final int valueOffset = node.length - TrieConstants.VALUE_LENGTH;
+        return Arrays.equals(node, 1, valueOffset, keyBytes, 0, keyBytes.length)
+            ? Optional.of(Bytes32.wrap(node, valueOffset))
+            : Optional.empty();
+      }
+      final byte[] prefix = TrieNodeCodec.branchPrefix(node);
+      final int split = depth + TrieNodeCodec.branchPrefixLength(node);
+      if (split >= keyBits) {
+        return Optional.empty();
+      }
+      for (int i = depth; i < split; i++) {
+        if (ByteTrieOps.bitAt(keyBytes, i) != ByteTrieOps.bitAt(prefix, i - depth)) {
+          return Optional.empty();
+        }
+      }
+      final int child = node.length - (2 - ByteTrieOps.bitAt(keyBytes, split)) * Bytes32.SIZE;
+      hash = Bytes32.wrap(node, child);
+      depth = split + 1;
     }
-    return nodesByHash;
+    return Optional.empty();
   }
 
-  private static TrieNode decodeFromProof(
-      final Bytes location, final Bytes encoded, final Map<Bytes32, Bytes> nodesByHash) {
-    if (encoded.isEmpty()) {
-      return TrieNode.empty();
+  private static Bytes32 hash(final byte[] node) {
+    if (node[0] == TrieNodeCodec.LEAF_TAG) {
+      final int valueOffset = node.length - TrieConstants.VALUE_LENGTH;
+      return Bytes32.wrap(
+          ByteTrieOps.leafHash(
+              Arrays.copyOfRange(node, 1, valueOffset),
+              valueOffset - 1,
+              Arrays.copyOfRange(node, valueOffset, node.length)));
     }
-    final int tag = encoded.get(0) & 0xFF;
-    if (tag == TrieNodeCodec.LEAF_TAG) {
-      return decodeLeafOrBranchOnly(encoded);
+    if (node[0] != TrieNodeCodec.BRANCH_TAG) {
+      throw new IllegalArgumentException("unknown node tag " + node[0]);
     }
-    if (tag == TrieNodeCodec.BRANCH_TAG) {
-      final byte[] raw = encoded.toArrayUnsafe();
-      final int prefixLen = TrieNodeCodec.branchPrefixLength(raw);
-      final byte[] prefixBits =
-          TrieNodeCodec.unpackPrefix(raw, TrieNodeCodec.BRANCH_PREFIX_OFFSET, prefixLen);
-      final Bytes32 leftHash = Bytes32.wrap(encoded.slice(encoded.size() - 64, 32).toArrayUnsafe());
-      final Bytes32 rightHash =
-          Bytes32.wrap(encoded.slice(encoded.size() - 32, 32).toArrayUnsafe());
-      final Bytes leftLoc = TrieNodeCodec.childLocation(location, prefixBits, prefixLen, 0);
-      final Bytes rightLoc = TrieNodeCodec.childLocation(location, prefixBits, prefixLen, 1);
-      return new BranchNode(
-          prefixBits,
-          prefixLen,
-          resolveChild(leftLoc, leftHash, nodesByHash),
-          resolveChild(rightLoc, rightHash, nodesByHash),
-          true);
-    }
-    throw new IllegalArgumentException("Unknown node tag: " + tag);
-  }
-
-  private static TrieNode resolveChild(
-      final Bytes location, final Bytes32 hash, final Map<Bytes32, Bytes> nodesByHash) {
-    if (hash.equals(TrieConstants.EMPTY_TRIE_ROOT)) {
-      return TrieNode.empty();
-    }
-    final Bytes encoded = nodesByHash.get(hash);
-    if (encoded == null) {
-      return new ProofReferenceNode(hash);
-    }
-    return decodeFromProof(location, encoded, nodesByHash);
-  }
-
-  private static TrieNode decodeLeafOrBranchOnly(final Bytes encoded) {
-    final int tag = encoded.get(0) & 0xFF;
-    if (tag == TrieNodeCodec.LEAF_TAG) {
-      final int keyLen = encoded.size() - 1 - TrieConstants.VALUE_LENGTH;
-      final byte[] key = encoded.slice(1, keyLen).toArrayUnsafe();
-      final byte[] value = encoded.slice(1 + keyLen, TrieConstants.VALUE_LENGTH).toArrayUnsafe();
-      return new LeafNode(key, keyLen, value, true);
-    }
-    if (tag == TrieNodeCodec.BRANCH_TAG) {
-      final byte[] raw = encoded.toArrayUnsafe();
-      final int prefixLen = TrieNodeCodec.branchPrefixLength(raw);
-      final byte[] prefixBits =
-          TrieNodeCodec.unpackPrefix(raw, TrieNodeCodec.BRANCH_PREFIX_OFFSET, prefixLen);
-      final Bytes32 leftHash = Bytes32.wrap(encoded.slice(encoded.size() - 64, 32).toArrayUnsafe());
-      final Bytes32 rightHash =
-          Bytes32.wrap(encoded.slice(encoded.size() - 32, 32).toArrayUnsafe());
-      return new BranchNode(
-          prefixBits,
-          prefixLen,
-          new ProofReferenceNode(leftHash),
-          new ProofReferenceNode(rightHash),
-          true);
-    }
-    throw new IllegalArgumentException("Unknown node tag: " + tag);
-  }
-
-  /** Placeholder child that exposes only the merkle hash from a proof reference. */
-  private static final class ProofReferenceNode extends TrieNode {
-
-    private final Bytes32 hash;
-
-    private ProofReferenceNode(final Bytes32 hash) {
-      super(true);
-      this.hash = hash;
-    }
-
-    @Override
-    public byte[] merkleHashBytes() {
-      return hash.toArrayUnsafe();
-    }
-
-    @Override
-    public Bytes encode() {
-      throw new UnsupportedOperationException("Proof reference node is not encodable");
-    }
-
-    @Override
-    public TrieNode accept(final PathNodeVisitor visitor, final TrieKey key, final int depth) {
-      throw new UnsupportedOperationException("Proof reference node cannot be traversed");
-    }
-
-    @Override
-    public void accept(final Bytes location, final LocationNodeVisitor visitor) {
-      throw new UnsupportedOperationException("Proof reference node cannot be traversed");
-    }
+    return Bytes32.wrap(
+        ByteTrieOps.branchHash(
+            TrieNodeCodec.branchPrefix(node),
+            TrieNodeCodec.branchPrefixLength(node),
+            Arrays.copyOfRange(node, node.length - 2 * Bytes32.SIZE, node.length - Bytes32.SIZE),
+            Arrays.copyOfRange(node, node.length - Bytes32.SIZE, node.length)));
   }
 }

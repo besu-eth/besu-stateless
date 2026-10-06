@@ -16,8 +16,6 @@ package org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.hash;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieConstants;
-
 import java.util.Random;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -42,39 +40,6 @@ class Blake3HasherTest {
   }
 
   @Test
-  void hashBytesMatchesBouncyCastle() {
-    final Bytes data = Bytes.fromHexString("0x0102030405");
-    assertThat(Blake3Hasher.hashBytes(data)).isEqualTo(referenceBlake3(data));
-  }
-
-  @Test
-  void sequentialHashesReturnIndependentArrays() {
-    final byte[] key = Bytes.fromHexString("0xaaaa").toArrayUnsafe();
-    final byte[] value = Bytes32.repeat((byte) 1).toArrayUnsafe();
-    final byte[] h1 =
-        Blake3Hasher.hash(TrieConstants.LEAF_NODE_TAG, key, 0, key.length, value, 0, 32);
-    final byte[] h2 =
-        Blake3Hasher.hash(TrieConstants.LEAF_NODE_TAG, key, 0, key.length, value, 0, 32);
-    assertThat(h1).isEqualTo(h2);
-    assertThat(h1).isNotSameAs(h2);
-
-    final byte[] branch =
-        Blake3Hasher.hash(
-            TrieConstants.BRANCH_NODE_TAG, new byte[] {0, 3}, 0, 2, h1, 0, 32, h2, 0, 32);
-    assertThat(branch).isNotEqualTo(h1);
-    assertThat(h1).isEqualTo(h2);
-  }
-
-  @Test
-  void hashRawReturnsOwnedCopy() {
-    final byte[] data = Bytes.fromHexString("0xdead").toArrayUnsafe();
-    final byte[] h1 = Blake3Hasher.hashRaw(data, 0, data.length);
-    final byte[] h2 = Blake3Hasher.hashRaw(data, 0, data.length);
-    h1[0] = (byte) 0xFF;
-    assertThat(h2[0]).isNotEqualTo((byte) 0xFF);
-  }
-
-  @Test
   void matchesTheOfficialVectorForEmptyInput() {
     assertThat(Bytes.wrap(Blake3Hasher.hashRaw(new byte[0], 0, 0)))
         .isEqualTo(
@@ -86,10 +51,11 @@ class Blake3HasherTest {
   void matchesBouncyCastleForEveryLengthAcrossChunks() {
     final Random random = new Random(3);
     for (int len = 0; len <= 2048; len++) {
-      final byte[] data = new byte[len];
-      random.nextBytes(data);
+      final byte[] data = randomBytes(random, len);
       assertThat(Bytes32.wrap(Blake3Hasher.hashRaw(data, 0, len)))
           .as("length %d", len)
+          .isEqualTo(referenceBlake3(Bytes.wrap(data)));
+      assertThat(Blake3Hasher.hashBytes(Bytes.wrap(data)))
           .isEqualTo(referenceBlake3(Bytes.wrap(data)));
     }
   }
@@ -97,32 +63,50 @@ class Blake3HasherTest {
   @Test
   void matchesBouncyCastleForLongInputs() {
     final Random random = new Random(5);
-    for (final int len : new int[] {1023, 1024, 1025, 4096, 10_000}) {
-      final byte[] data = new byte[len];
-      random.nextBytes(data);
+    for (final int len : new int[] {4096, 10_000}) {
+      final byte[] data = randomBytes(random, len);
       assertThat(Bytes32.wrap(Blake3Hasher.hashRaw(data, 0, len)))
           .as("length %d", len)
           .isEqualTo(referenceBlake3(Bytes.wrap(data)));
     }
-    // Tagged overload with a long slice.
-    final byte[] big = new byte[1100];
-    random.nextBytes(big);
-    final byte[] expected = new byte[1 + big.length + 32 + 32];
-    expected[0] = TrieConstants.BRANCH_NODE_TAG;
-    System.arraycopy(big, 0, expected, 1, big.length);
-    assertThat(
-            Bytes32.wrap(
-                Blake3Hasher.hash(
-                    TrieConstants.BRANCH_NODE_TAG,
-                    big,
-                    0,
-                    big.length,
-                    new byte[32],
-                    0,
-                    32,
-                    new byte[32],
-                    0,
-                    32)))
-        .isEqualTo(referenceBlake3(Bytes.wrap(expected)));
+  }
+
+  @Test
+  void taggedOverloadsHashTheTagThenEachSlice() {
+    final Random random = new Random(7);
+    // Distinct slices taken at an offset, the last one past a chunk boundary.
+    final byte[] a = randomBytes(random, 40);
+    final byte[] b = randomBytes(random, 40);
+    final byte[] c = randomBytes(random, 1100);
+
+    assertThat(Bytes32.wrap(Blake3Hasher.hash((byte) 7, a, 3, 34, b, 5, 32)))
+        .isEqualTo(
+            referenceBlake3(
+                Bytes.concatenate(Bytes.of(7), Bytes.wrap(a, 3, 34), Bytes.wrap(b, 5, 32))));
+    assertThat(Bytes32.wrap(Blake3Hasher.hash((byte) 9, a, 1, 2, b, 0, 32, c, 50, 1050)))
+        .isEqualTo(
+            referenceBlake3(
+                Bytes.concatenate(
+                    Bytes.of(9),
+                    Bytes.wrap(a, 1, 2),
+                    Bytes.wrap(b, 0, 32),
+                    Bytes.wrap(c, 50, 1050))));
+  }
+
+  @Test
+  void hashesAreNewArrays() {
+    final byte[] data = Bytes.fromHexString("0xdead").toArrayUnsafe();
+    final byte[] h1 = Blake3Hasher.hashRaw(data, 0, data.length);
+    final byte[] h2 = Blake3Hasher.hashRaw(data, 0, data.length);
+    h1[0] ^= (byte) 0xFF;
+    assertThat(h2).isEqualTo(Blake3Hasher.hashRaw(data, 0, data.length));
+    assertThat(Blake3Hasher.hash((byte) 0, data, 0, 2, data, 0, 2))
+        .isNotSameAs(Blake3Hasher.hash((byte) 0, data, 0, 2, data, 0, 2));
+  }
+
+  private static byte[] randomBytes(final Random random, final int length) {
+    final byte[] bytes = new byte[length];
+    random.nextBytes(bytes);
+    return bytes;
   }
 }

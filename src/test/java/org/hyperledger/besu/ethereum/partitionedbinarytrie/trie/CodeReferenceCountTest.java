@@ -32,10 +32,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * Reference counting for content-addressed code.
- *
- * <p>Counts are written through the same {@code NodeUpdater} as the trie nodes, under {@code 0x02
- * || codeHash}, so only the first insert and the last delete change the trie itself.
+ * Reference counting for content-addressed code: counts are stored beside the trie nodes, so only
+ * the first insert and the last delete change the trie.
  */
 class CodeReferenceCountTest {
 
@@ -142,8 +140,7 @@ class CodeReferenceCountTest {
     trie.commit(nodeUpdater);
 
     final Bytes countKey = TrieNodeCodec.codeRefCountKey(HASH_A);
-    assertThat(countKey)
-        .isEqualTo(Bytes.concatenate(Bytes.of(TrieNodeCodec.CODE_REFCOUNT_PREFIX), HASH_A));
+    assertThat(countKey).isEqualTo(Bytes.concatenate(Bytes.of(1), HASH_A));
     assertThat(nodeUpdater.storage).containsKey(countKey);
     assertThat(CodeRefCountEncoder.refCount(nodeUpdater.storage.get(countKey))).isEqualTo(1);
   }
@@ -158,13 +155,10 @@ class CodeReferenceCountTest {
     final Bytes countKeyB = TrieNodeCodec.codeRefCountKey(HASH_B);
     assertThat(nodeUpdater.storage).containsKeys(countKeyA, countKeyB);
 
-    // Node locations hold one byte per path bit, so they never contain a byte above 0x01.
+    // Node locations are empty (the root) or start with 0x00, count keys with 0x01.
     for (final Bytes key : nodeUpdater.storage.keySet()) {
-      if (key.equals(countKeyA) || key.equals(countKeyB)) {
-        continue;
-      }
-      for (int i = 0; i < key.size(); i++) {
-        assertThat(key.get(i)).isLessThanOrEqualTo((byte) 0x01);
+      if (!key.equals(countKeyA) && !key.equals(countKeyB) && !key.isEmpty()) {
+        assertThat(key.get(0)).isEqualTo(TrieNodeCodec.NODE_KEY_PREFIX);
       }
     }
   }

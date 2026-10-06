@@ -38,11 +38,8 @@ import org.bouncycastle.crypto.digests.Blake3Digest;
 import org.junit.jupiter.api.Test;
 
 /**
- * Conformance suite for the in-memory {@link BinaryTrie} reference implementation.
- *
- * <p>Layer: reference oracle ({@code trie.reference}, {@code trie.hash}, {@code trie.node}).
- * Validates bit encoding, merkleization, read/write/delete, and structural invariants against
- * hand-computed BLAKE3 hashes and {@link MutableBinaryTrie} cross-checks.
+ * Checks the {@link BinaryTrie} oracle against hand-computed hashes and the insertion-based
+ * reference of the EIP-8297 test suite.
  */
 class BinaryTrieConformanceTest {
 
@@ -120,53 +117,12 @@ class BinaryTrieConformanceTest {
   }
 
   @Test
-  void emptyTrieRootIsAllZeros() {
-    final BinaryTrie trie = new BinaryTrie();
-    assertThat(trie.root()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
-    assertThat(trie.root().toArray()).containsOnly(new byte[32]);
-  }
-
-  @Test
-  void triePutAndGet() {
-    final BinaryTrie trie = new BinaryTrie();
-    final Bytes key = Bytes.repeat((byte) 0x01, 32);
-    final Bytes32 value = Bytes32.repeat((byte) 0x02);
-
-    assertThat(trie.get(key)).isEmpty();
-    trie.put(key, value);
-    assertThat(trie.get(key)).contains(value);
-
-    final Bytes32 replacement = Bytes32.repeat((byte) 0x03);
-    trie.put(key, replacement);
-    assertThat(trie.get(key)).contains(replacement);
-  }
-
-  @Test
   void triePutRejectsMalformedInputs() {
     final BinaryTrie trie = new BinaryTrie();
     assertThatThrownBy(() -> trie.put(Bytes.EMPTY, Bytes32.repeat((byte) 1)))
         .isInstanceOf(IllegalArgumentException.class);
     assertThatThrownBy(() -> trie.put(Bytes.wrap(new byte[8193]), Bytes32.repeat((byte) 1)))
         .isInstanceOf(IllegalArgumentException.class);
-    assertThatThrownBy(() -> trie.put(Bytes.of((byte) 1), Bytes32.wrap(new byte[31])))
-        .isInstanceOf(IllegalArgumentException.class);
-  }
-
-  @Test
-  void copyTrieIsIndependent() {
-    final Bytes key = Bytes32.repeat((byte) 0x01);
-    final Bytes otherKey = Bytes32.repeat((byte) 0x02);
-    final Bytes32 value = Bytes32.repeat((byte) 0x03);
-
-    final BinaryTrie original = new BinaryTrie();
-    original.put(key, value);
-
-    final BinaryTrie duplicate = BinaryTrie.copyOf(original);
-    assertThat(duplicate.get(key)).contains(value);
-
-    duplicate.put(otherKey, value);
-    assertThat(original.get(otherKey)).isEmpty();
-    assertThat(duplicate.root()).isNotEqualTo(original.root());
   }
 
   @Test
@@ -270,48 +226,6 @@ class BinaryTrieConformanceTest {
   }
 
   @Test
-  void rawTrieCanStoreZeroValue() {
-    final Bytes key = Bytes.concatenate(Bytes.repeat((byte) 0x07, 31), Bytes.of((byte) 0));
-    final BinaryTrie trie = new BinaryTrie();
-    trie.put(key, Bytes32.ZERO);
-    assertThat(trie.root()).isNotEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
-  }
-
-  @Test
-  void stateReadAbsentKeyReturnsZero() {
-    final Bytes key = Bytes.concatenate(Bytes.repeat((byte) 0x07, 31), Bytes.of((byte) 0));
-    final BinaryTrie trie = new BinaryTrie();
-
-    assertThat(trie.readState(key)).isEqualTo(Bytes32.ZERO);
-  }
-
-  @Test
-  void removeDeletesExistingLeaf() {
-    final Bytes key = Bytes.concatenate(Bytes.repeat((byte) 0x07, 31), Bytes.of((byte) 0));
-    final Bytes32 value = Bytes32.repeat((byte) 0x42);
-    final BinaryTrie trie = new BinaryTrie();
-
-    trie.put(key, value);
-    assertThat(trie.get(key)).contains(value);
-
-    trie.remove(key);
-    assertThat(trie.get(key)).isEmpty();
-    assertThat(trie.readState(key)).isEqualTo(Bytes32.ZERO);
-    assertThat(trie.root()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
-  }
-
-  @Test
-  void removeAbsentKeyIsNoOp() {
-    final Bytes key = Bytes.concatenate(Bytes.repeat((byte) 0x07, 31), Bytes.of((byte) 0));
-    final BinaryTrie trie = new BinaryTrie();
-
-    trie.remove(key);
-
-    assertThat(trie.get(key)).isEmpty();
-    assertThat(trie.root()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
-  }
-
-  @Test
   void prefixKeyViolationIsRejected() {
     final BinaryTrie trie = new BinaryTrie();
     trie.put(Bytes.repeat((byte) 0xAA, 34), Bytes32.repeat((byte) 0x01));
@@ -344,7 +258,8 @@ class BinaryTrieConformanceTest {
     final Random rng = new Random(11832);
     for (int trial = 0; trial < 10; trial++) {
       final Map<Bytes, Bytes32> entries = new HashMap<>();
-      for (int i = 0; i < rng.nextInt(29) + 1; i++) {
+      final int prefixCount = rng.nextInt(29) + 1;
+      for (int i = 0; i < prefixCount; i++) {
         final Bytes prefix;
         if (rng.nextDouble() < 0.5) {
           prefix =
@@ -353,7 +268,8 @@ class BinaryTrieConformanceTest {
         } else {
           prefix = Bytes.concatenate(Bytes.of((byte) 0xFF), Bytes.wrap(randomBytes(rng, 64)));
         }
-        for (int j = 0; j < rng.nextInt(3) + 1; j++) {
+        final int leafCount = rng.nextInt(3) + 1;
+        for (int j = 0; j < leafCount; j++) {
           entries.put(
               Bytes.concatenate(prefix, Bytes.wrap(randomBytes(rng, 1))),
               Bytes32.wrap(randomBytes(rng, 32)));
@@ -371,82 +287,15 @@ class BinaryTrieConformanceTest {
     }
   }
 
-  @Test
-  void rootIsInsertionOrderIndependent() {
-    final Random rng = new Random(1234);
-    final List<Map.Entry<Bytes, Bytes32>> entries = new ArrayList<>();
-    for (int i = 0; i < 16; i++) {
-      entries.add(
-          Map.entry(Bytes32.wrap(randomBytes(rng, 32)), Bytes32.wrap(randomBytes(rng, 32))));
-    }
-
-    final BinaryTrie forward = new BinaryTrie();
-    for (final Map.Entry<Bytes, Bytes32> entry : entries) {
-      forward.put(entry.getKey(), entry.getValue());
-    }
-
-    final BinaryTrie backward = new BinaryTrie();
-    for (int i = entries.size() - 1; i >= 0; i--) {
-      backward.put(entries.get(i).getKey(), entries.get(i).getValue());
-    }
-
-    assertThat(forward.root()).isEqualTo(backward.root());
-  }
-
-  @Test
-  void mutableTrieMatchesBinaryTrie() {
-    final Random rng = new Random(4567);
-    for (int trial = 0; trial < 20; trial++) {
-      final Map<Bytes, Bytes32> entries = randomEntries(rng);
-      final BinaryTrie specTrie = new BinaryTrie();
-      final MutableBinaryTrie mutableTrie = new MutableBinaryTrie();
-      for (final Map.Entry<Bytes, Bytes32> entry : entries.entrySet()) {
-        specTrie.put(entry.getKey(), entry.getValue());
-        mutableTrie.put(entry.getKey(), entry.getValue());
-      }
-      assertThat(mutableTrie.root()).as("trial %d", trial).isEqualTo(specTrie.root());
-    }
-  }
-
-  @Test
-  void overwritingAValueRecommitsToTheFinalValue() {
-    final byte[] stem = new byte[33];
-    stem[0] = 0;
-    for (int i = 1; i < 33; i++) {
-      stem[i] = 0x42;
-    }
-    final Bytes key = Bytes.concatenate(Bytes.wrap(stem), Bytes.of((byte) 0x07));
-    final Bytes neighbour = Bytes.concatenate(Bytes.wrap(stem), Bytes.of((byte) 0x08));
-    final Bytes32 first = Bytes32.repeat((byte) 0x01);
-    final Bytes32 second = Bytes32.repeat((byte) 0x02);
-
-    final BinaryTrie overwritten = new BinaryTrie();
-    overwritten.put(key, first);
-    overwritten.put(neighbour, first);
-    final Bytes32 oldRoot = overwritten.root();
-    overwritten.put(key, second);
-
-    final BinaryTrie fresh = new BinaryTrie();
-    fresh.put(key, second);
-    fresh.put(neighbour, first);
-
-    final ReferenceRadixTree reference = new ReferenceRadixTree();
-    reference.insert(key, first);
-    reference.insert(neighbour, first);
-    reference.insert(key, second);
-
-    assertThat(overwritten.root()).isNotEqualTo(oldRoot);
-    assertThat(overwritten.root()).isEqualTo(fresh.root());
-    assertThat(reference.merkelize()).isEqualTo(fresh.root());
-  }
-
   private static Map<Bytes, Bytes32> randomEntries(final Random rng) {
     final Map<Bytes, Bytes32> entries = new HashMap<>();
-    for (int i = 0; i < rng.nextInt(39) + 1; i++) {
+    final int count = rng.nextInt(39) + 1;
+    for (int i = 0; i < count; i++) {
       final Bytes key = Bytes.wrap(randomBytes(rng, 32));
       entries.put(key, Bytes32.wrap(randomBytes(rng, 32)));
 
-      for (int j = 0; j < rng.nextInt(3); j++) {
+      final int siblings = rng.nextInt(3);
+      for (int j = 0; j < siblings; j++) {
         entries.put(
             Bytes.concatenate(key.slice(0, 31), Bytes.wrap(randomBytes(rng, 1))),
             Bytes32.wrap(randomBytes(rng, 32)));

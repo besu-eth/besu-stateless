@@ -65,10 +65,9 @@ public class RemoveVisitor implements PathNodeVisitor {
       // The key ended before this branch could be matched, so nothing can be removed below it.
       return branchNode;
     }
-    final byte[] prefixBits = branchNode.prefixBits();
     final int prefixLen = branchNode.prefixLength();
     for (int i = 0; i < prefixLen; i++) {
-      if (depth + i >= keyBits || key.bitAt(depth + i) != prefixBits[i]) {
+      if (depth + i >= keyBits || key.bitAt(depth + i) != branchNode.prefixBit(i)) {
         // The search key diverges inside the compressed prefix; this branch is untouched.
         return branchNode;
       }

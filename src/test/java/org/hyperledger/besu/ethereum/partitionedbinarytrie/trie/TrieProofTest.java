@@ -15,168 +15,167 @@
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.proof.TrieNodeProofVerifier.verify;
 
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.TrieNodeCodec;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKeyDerivation;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.NodeLoaderMock;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.NodeUpdaterMock;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.proof.TrieNodeProofVerifier;
 import org.hyperledger.besu.ethereum.trie.Proof;
 
-import java.util.Optional;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
-import org.junit.jupiter.api.BeforeEach;
+import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
 
 /**
- * Merkle proof generation and verification for the stored partitioned binary trie.
+ * Proofs of {@link StoredPartitionedBinaryTrie}, checked with {@code TrieNodeProofVerifier}.
  *
- * <p>Layer: trie ({@link StoredPartitionedBinaryTrie}, {@link PartitionedBinaryTrie}). Proofs are
- * verified with {@link TrieNodeProofVerifier}; in-memory and stored variants must agree on the same
- * root and witness nodes.
+ * <p>Keys 0xfe01, 0xfe02 and 0xfe03 give a root branch whose prefix is 0xfe and six zero bits, leaf
+ * 0xfe01 on its left and a branch over 0xfe02 and 0xfe03 on its right.
  */
 class TrieProofTest {
 
-  private NodeUpdaterMock nodeUpdater;
-  private NodeLoaderMock nodeLoader;
+  private static final Bytes KEY_1 = Bytes.fromHexString("0xfe01");
+  private static final Bytes KEY_2 = Bytes.fromHexString("0xfe02");
+  private static final Bytes KEY_3 = Bytes.fromHexString("0xfe03");
 
-  @BeforeEach
-  void setUp() {
-    nodeUpdater = new NodeUpdaterMock();
-    nodeLoader = new NodeLoaderMock(nodeUpdater);
-  }
+  private final NodeUpdaterMock nodeUpdater = new NodeUpdaterMock();
+  private final NodeLoaderMock nodeLoader = new NodeLoaderMock(nodeUpdater);
 
   @Test
-  void getValueWithProof_emptyTrie() {
-    final Bytes key = Bytes.fromHexString("0xfe01");
+  void emptyTrieProvesEveryKeyAbsent() {
     final StoredPartitionedBinaryTrie trie = new StoredPartitionedBinaryTrie(nodeLoader);
 
-    final Proof<Bytes> proof = trie.getValueWithProof(key);
+    final Proof<Bytes> proof = trie.getValueWithProof(KEY_1);
+
     assertThat(proof.getValue()).isEmpty();
     assertThat(proof.getProofRelatedNodes()).isEmpty();
-    assertThat(TrieNodeProofVerifier.verifyRoot(trie.getRootHash(), proof.getProofRelatedNodes()))
-        .isTrue();
+    assertThat(verify(trie.getRootHash(), KEY_1, proof.getProofRelatedNodes())).isEmpty();
   }
 
   @Test
-  void getValueWithProof_singleLeafTrie() {
-    final Bytes key = Bytes.fromHexString("0xfe01");
-    final Bytes32 value = Bytes32.repeat((byte) 0x01);
+  void proofOfAPresentKeyHoldsItsPath() {
+    final StoredPartitionedBinaryTrie trie = threeKeyTrie();
 
-    final StoredPartitionedBinaryTrie trie = new StoredPartitionedBinaryTrie(nodeLoader);
-    trie.put(key, value);
+    final Proof<Bytes> proof = trie.getValueWithProof(KEY_2);
+
+    assertThat(proof.getValue()).contains(value(KEY_2));
+    assertThat(tags(proof))
+        .containsExactly(
+            TrieNodeCodec.BRANCH_TAG, TrieNodeCodec.BRANCH_TAG, TrieNodeCodec.LEAF_TAG);
+    assertThat(prefixLength(proof.getProofRelatedNodes().get(0))).isEqualTo(14);
+    assertThat(verify(trie.getRootHash(), KEY_2, proof.getProofRelatedNodes()))
+        .contains(value(KEY_2));
+  }
+
+  @Test
+  void keyLeavingTheRootPrefixIsProvedAbsentByTheRootAlone() {
+    // 0xfe04 leaves the root prefix at its 14th bit.
+    final Bytes key = Bytes.fromHexString("0xfe04");
+    final StoredPartitionedBinaryTrie trie = threeKeyTrie();
 
     final Proof<Bytes> proof = trie.getValueWithProof(key);
-    assertThat(proof.getValue()).contains(value);
-    assertThat(proof.getProofRelatedNodes()).hasSize(1);
-    assertThat(TrieNodeProofVerifier.verifyRoot(trie.getRootHash(), proof.getProofRelatedNodes()))
-        .isTrue();
-    assertVerifiedValue(
-        trie.getRootHash(), key, proof.getProofRelatedNodes(), Optional.of(value.toArrayUnsafe()));
-  }
 
-  private static void assertVerifiedValue(
-      final Bytes32 root,
-      final Bytes key,
-      final java.util.List<Bytes> proofNodes,
-      final Optional<byte[]> expectedValue) {
-    final Optional<Optional<byte[]>> verified =
-        TrieNodeProofVerifier.verifyAndGetValue(root, key.toArrayUnsafe(), key.size(), proofNodes);
-    assertThat(verified).isPresent();
-    assertThat(verified.get().map(Bytes::wrap)).isEqualTo(expectedValue.map(Bytes::wrap));
-  }
-
-  @Test
-  void getValueWithProof_multiKeyTrie() {
-    final Bytes key1 = Bytes.fromHexString("0xfe01");
-    final Bytes key2 = Bytes.fromHexString("0xfe02");
-    final Bytes key3 = Bytes.fromHexString("0xfe03");
-    final Bytes32 value1 = Bytes32.repeat((byte) 0x11);
-    final Bytes32 value2 = Bytes32.repeat((byte) 0x22);
-    final Bytes32 value3 = Bytes32.repeat((byte) 0x33);
-
-    final StoredPartitionedBinaryTrie trie = new StoredPartitionedBinaryTrie(nodeLoader);
-    trie.put(key1, value1);
-    trie.put(key2, value2);
-    trie.put(key3, value3);
-
-    final Proof<Bytes> proof = trie.getValueWithProof(key1);
-    assertThat(proof.getValue()).contains(value1);
-    assertThat(proof.getProofRelatedNodes()).isNotEmpty();
-    assertThat(TrieNodeProofVerifier.verifyRoot(trie.getRootHash(), proof.getProofRelatedNodes()))
-        .isTrue();
-    assertVerifiedValue(
-        trie.getRootHash(),
-        key1,
-        proof.getProofRelatedNodes(),
-        Optional.of(value1.toArrayUnsafe()));
-  }
-
-  @Test
-  void getValueWithProof_missingKey() {
-    final Bytes key1 = Bytes.fromHexString("0xfe01");
-    final Bytes key2 = Bytes.fromHexString("0xfe02");
-    final Bytes key3 = Bytes.fromHexString("0xfe03");
-    final Bytes missingKey = Bytes.fromHexString("0xfe04");
-    final Bytes32 value1 = Bytes32.repeat((byte) 0x11);
-    final Bytes32 value2 = Bytes32.repeat((byte) 0x22);
-    final Bytes32 value3 = Bytes32.repeat((byte) 0x33);
-
-    final StoredPartitionedBinaryTrie trie = new StoredPartitionedBinaryTrie(nodeLoader);
-    trie.put(key1, value1);
-    trie.put(key2, value2);
-    trie.put(key3, value3);
-
-    final Proof<Bytes> proof = trie.getValueWithProof(missingKey);
     assertThat(proof.getValue()).isEmpty();
-    assertThat(proof.getProofRelatedNodes()).isNotEmpty();
-    assertThat(TrieNodeProofVerifier.verifyRoot(trie.getRootHash(), proof.getProofRelatedNodes()))
-        .isTrue();
-    assertVerifiedValue(
-        trie.getRootHash(), missingKey, proof.getProofRelatedNodes(), Optional.empty());
+    assertThat(tags(proof)).containsExactly(TrieNodeCodec.BRANCH_TAG);
+    assertThat(verify(trie.getRootHash(), key, proof.getProofRelatedNodes())).isEmpty();
   }
 
   @Test
-  void getValueWithProof_afterCommitAndReload() {
-    final Bytes key = Bytes.fromHexString("0xabcd");
-    final Bytes32 value = Bytes32.repeat((byte) 0x99);
+  void absentKeyOfAStemIsProvedByTheLeafInItsPlace() {
+    // 0xfe00 follows the path of 0xfe01, whose leaf proves 0xfe00 absent.
+    final Bytes key = Bytes.fromHexString("0xfe00");
+    final StoredPartitionedBinaryTrie trie = threeKeyTrie();
 
+    final Proof<Bytes> proof = trie.getValueWithProof(key);
+
+    assertThat(proof.getValue()).isEmpty();
+    assertThat(tags(proof)).containsExactly(TrieNodeCodec.BRANCH_TAG, TrieNodeCodec.LEAF_TAG);
+    assertThat(verify(trie.getRootHash(), key, proof.getProofRelatedNodes())).isEmpty();
+  }
+
+  @Test
+  void reloadedTrieGivesTheSameProofs() {
+    // Stems rebuilt from their stored entries must give the very nodes the trie had in memory.
+    final Random random = new Random(11);
     final StoredPartitionedBinaryTrie trie = new StoredPartitionedBinaryTrie(nodeLoader);
-    trie.put(key, value);
+    final List<Bytes> keys = new ArrayList<>();
+    for (int i = 0; i < 30; i++) {
+      final Bytes32 address = Bytes32.random(random);
+      for (final Bytes key :
+          List.of(
+              TrieKeyDerivation.getTreeKeyForBasicData(address),
+              TrieKeyDerivation.getTreeKeyForCodeHash(address),
+              TrieKeyDerivation.getTreeKeyForStorageSlot(address, UInt256.valueOf(256)),
+              TrieKeyDerivation.getTreeKeyForStorageSlot(address, UInt256.valueOf(300)))) {
+        trie.put(key, Bytes32.random(random));
+        keys.add(key);
+      }
+      // Absent keys inside those stems.
+      keys.add(TrieKeyDerivation.getTreeKeyForStorageSlot(address, UInt256.valueOf(5)));
+      keys.add(TrieKeyDerivation.getTreeKeyForStorageSlot(address, UInt256.valueOf(400)));
+    }
+    final Map<Bytes, Proof<Bytes>> proofs = new HashMap<>();
+    keys.forEach(key -> proofs.put(key, trie.getValueWithProof(key)));
     trie.commit(nodeUpdater);
-    final Bytes32 root = trie.getRootHash();
 
-    final StoredPartitionedBinaryTrie reloaded = new StoredPartitionedBinaryTrie(nodeLoader, root);
-    final Proof<Bytes> proof = reloaded.getValueWithProof(key);
-
-    assertThat(proof.getValue()).contains(value);
-    assertThat(TrieNodeProofVerifier.verifyRoot(root, proof.getProofRelatedNodes())).isTrue();
-    assertVerifiedValue(
-        root, key, proof.getProofRelatedNodes(), Optional.of(value.toArrayUnsafe()));
+    final StoredPartitionedBinaryTrie reloaded = new StoredPartitionedBinaryTrie(nodeLoader);
+    for (final Bytes key : keys) {
+      final Proof<Bytes> proof = reloaded.getValueWithProof(key);
+      assertThat(proof.getProofRelatedNodes())
+          .as("key %s", key)
+          .isEqualTo(proofs.get(key).getProofRelatedNodes());
+      assertThat(verify(reloaded.getRootHash(), key, proof.getProofRelatedNodes()))
+          .isEqualTo(proof.getValue());
+    }
   }
 
   @Test
-  void inMemoryTrieProofMatchesStoredTrie() {
-    final Bytes key = Bytes.fromHexString("0x42");
-    final Bytes32 value = Bytes32.repeat((byte) 0x5A);
-    final byte[] keyBytes = key.toArrayUnsafe();
+  void proofNotMatchingTheRootIsRejected() {
+    final StoredPartitionedBinaryTrie trie = threeKeyTrie();
+    final Bytes32 root = trie.getRootHash();
+    final List<Bytes> nodes = trie.getValueWithProof(KEY_2).getProofRelatedNodes();
 
-    final PartitionedBinaryTrie trie = new PartitionedBinaryTrie();
-    trie.put(keyBytes, key.size(), value.toArrayUnsafe());
-    final Proof<byte[]> coreProof = trie.getValueWithProof(keyBytes, key.size());
+    // A changed value no longer hashes to what its parent holds.
+    final List<Bytes> tampered = new ArrayList<>(nodes);
+    final Bytes leaf = tampered.getLast();
+    tampered.set(
+        tampered.size() - 1, Bytes.concatenate(leaf.slice(0, leaf.size() - 1), Bytes.of(7)));
+    assertThatThrownBy(() -> verify(root, KEY_2, tampered))
+        .isInstanceOf(IllegalArgumentException.class);
+    // A node of the path missing.
+    assertThatThrownBy(() -> verify(root, KEY_2, nodes.subList(0, nodes.size() - 1)))
+        .isInstanceOf(IllegalArgumentException.class);
+    // Another trie.
+    assertThatThrownBy(() -> verify(Bytes32.repeat((byte) 1), KEY_2, nodes))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
 
-    final StoredPartitionedBinaryTrie storedTrie = new StoredPartitionedBinaryTrie(nodeLoader);
-    storedTrie.put(key, value);
-    final Proof<Bytes> storedProof = storedTrie.getValueWithProof(key);
+  private StoredPartitionedBinaryTrie threeKeyTrie() {
+    final StoredPartitionedBinaryTrie trie = new StoredPartitionedBinaryTrie(nodeLoader);
+    for (final Bytes key : List.of(KEY_1, KEY_2, KEY_3)) {
+      trie.put(key, value(key));
+    }
+    return trie;
+  }
 
-    assertThat(coreProof.getValue()).contains(value.toArrayUnsafe());
-    assertThat(storedProof.getValue()).contains(value);
-    assertThat(
-            TrieNodeProofVerifier.verifyRoot(trie.getRootHash(), coreProof.getProofRelatedNodes()))
-        .isTrue();
-    assertThat(
-            TrieNodeProofVerifier.verifyRoot(
-                storedTrie.getRootHash(), storedProof.getProofRelatedNodes()))
-        .isTrue();
+  private static Bytes32 value(final Bytes key) {
+    return Bytes32.repeat(key.get(1));
+  }
+
+  private static List<Byte> tags(final Proof<Bytes> proof) {
+    return proof.getProofRelatedNodes().stream().map(node -> node.get(0)).toList();
+  }
+
+  private static int prefixLength(final Bytes branch) {
+    return TrieNodeCodec.branchPrefixLength(branch.toArrayUnsafe());
   }
 }

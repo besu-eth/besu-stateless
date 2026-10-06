@@ -14,10 +14,10 @@
  */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.embedding;
 
+import static java.nio.charset.StandardCharsets.US_ASCII;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.BasicDataEncoder;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.CodeChunkifier;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.DelegationEncoder;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKeyDerivation;
@@ -28,6 +28,7 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.bouncycastle.crypto.digests.Blake3Digest;
+import org.bouncycastle.crypto.digests.KeccakDigest;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -90,10 +91,9 @@ class Eip8297EmbeddingPrimitivesTest {
 
   @Test
   void emptyCodeHashIsKeccakOfEmpty() {
-    assertThat(TrieKeyDerivation.EMPTY_CODE_HASH)
-        .isEqualTo(
-            Bytes32.fromHexString(
-                "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"));
+    final byte[] digest = new byte[32];
+    new KeccakDigest(256).doFinal(digest, 0);
+    assertThat(TrieKeyDerivation.EMPTY_CODE_HASH).isEqualTo(Bytes32.wrap(digest));
   }
 
   @Test
@@ -259,23 +259,7 @@ class Eip8297EmbeddingPrimitivesTest {
   @Test
   void codeIsContentAddressed() {
     final Bytes32 codeHash =
-        TrieHasher.blake3Hash(
-            Bytes.of(
-                (byte) 's',
-                (byte) 'h',
-                (byte) 'a',
-                (byte) 'r',
-                (byte) 'e',
-                (byte) 'd',
-                (byte) ' ',
-                (byte) 'b',
-                (byte) 'y',
-                (byte) 't',
-                (byte) 'e',
-                (byte) 'c',
-                (byte) 'o',
-                (byte) 'd',
-                (byte) 'e'));
+        TrieHasher.blake3Hash(Bytes.wrap("shared bytecode".getBytes(US_ASCII)));
     final Bytes32 otherCodeHash = TrieHasher.blake3Hash(Bytes.of((byte) 'x'));
 
     assertThat(TrieKeyDerivation.getTreeKeyForCodeChunk(codeHash, 5).get(0))
@@ -302,61 +286,13 @@ class Eip8297EmbeddingPrimitivesTest {
 
   @Test
   void chunkifyCodeEipExample() {
-    final Bytes code =
-        Bytes.concatenate(
-            Bytes.repeat((byte) 0, 28),
-            Bytes.of(
-                (byte) 0x63,
-                (byte) 99,
-                (byte) 98,
-                (byte) 97,
-                (byte) 96,
-                (byte) 0x60,
-                (byte) 128,
-                (byte) 0x52));
-    final var chunks = CodeChunkifier.chunkifyCode(code);
-    assertThat(chunks).hasSize(2);
-    assertThat(chunks.get(0))
-        .isEqualTo(
+    // PUSH4 at offset 28: two of its data bytes spill into the second chunk.
+    final Bytes code = Bytes.fromHexString("0x" + "00".repeat(28) + "6363626160608052");
+    assertThat(CodeChunkifier.chunkifyCode(code))
+        .containsExactly(
             Bytes32.fromHexString(
-                "0000000000000000000000000000000000000000000000000000000000636362"));
-    assertThat(chunks.get(1))
-        .isEqualTo(
-            Bytes32.wrap(
-                new byte[] {
-                  2,
-                  97,
-                  96,
-                  (byte) 0x60,
-                  (byte) 128,
-                  (byte) 0x52,
-                  0,
-                  0,
-                  0,
-                  0,
-                  0,
-                  0,
-                  0,
-                  0,
-                  0,
-                  0,
-                  0,
-                  0,
-                  0,
-                  0,
-                  0,
-                  0,
-                  0,
-                  0,
-                  0,
-                  0,
-                  0,
-                  0,
-                  0,
-                  0,
-                  0,
-                  0
-                }));
+                "0x0000000000000000000000000000000000000000000000000000000000636362"),
+            Bytes32.rightPad(Bytes.fromHexString("0x026160608052")));
   }
 
   @Test
@@ -386,21 +322,5 @@ class Eip8297EmbeddingPrimitivesTest {
     final byte[] expected = new byte[32];
     expected[1] = (byte) 0x7F;
     assertThat(CodeChunkifier.chunkifyCode(code)).containsExactly(Bytes32.wrap(expected));
-  }
-
-  @Test
-  void encodeBasicDataLayout() {
-    final Bytes32 value =
-        BasicDataEncoder.encodeBasicData(
-            0x11223344L,
-            0x5566778899aabbccl,
-            UInt256.fromHexString("0123456789abcdef0123456789abcdef"));
-    assertThat(value.size()).isEqualTo(32);
-    assertThat(value.get(0)).isZero();
-    assertThat(value.slice(1, 3)).isEqualTo(Bytes.repeat((byte) 0, 3));
-    assertThat(value.slice(4, 4)).isEqualTo(Bytes.fromHexString("11223344"));
-    assertThat(value.slice(8, 8)).isEqualTo(Bytes.fromHexString("5566778899aabbcc"));
-    assertThat(value.slice(16, 16))
-        .isEqualTo(Bytes.fromHexString("0123456789abcdef0123456789abcdef"));
   }
 }

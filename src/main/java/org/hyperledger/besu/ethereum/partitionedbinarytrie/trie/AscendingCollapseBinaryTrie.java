@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie;
 
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.TrieNodeCodec;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.bytes.ByteTrieOps;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKey;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.StoredTrieNodeFactory;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.BranchNode;
@@ -92,7 +93,7 @@ public final class AscendingCollapseBinaryTrie {
         throw new IllegalArgumentException("prepared keys do not form a complete subtree");
       }
       return new BranchNode(
-          Arrays.copyOfRange(branch.prefixBits(), depth, branch.prefixLength()),
+          ByteTrieOps.sliceBits(branch.prefix(), depth, branch.prefixLength()),
           branch.prefixLength() - depth,
           branch.leftChild(),
           branch.rightChild(),

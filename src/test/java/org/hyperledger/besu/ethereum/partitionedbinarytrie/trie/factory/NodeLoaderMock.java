@@ -21,7 +21,10 @@ import java.util.Optional;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
-/** Location-keyed trie node loader backed by {@link NodeUpdaterMock}. */
+/**
+ * Location-keyed trie node loader backed by {@link NodeUpdaterMock}. Asking for a node by a hash
+ * other than the one written at its location fails: the trie read a stale entry.
+ */
 public final class NodeLoaderMock implements NodeLoader {
 
   private final NodeUpdaterMock updater;
@@ -32,6 +35,11 @@ public final class NodeLoaderMock implements NodeLoader {
 
   @Override
   public Optional<Bytes> getNode(final Bytes location, final Bytes32 hash) {
+    final Bytes32 stored = updater.hashes.get(location);
+    if (hash != null && stored != null && !stored.equals(hash)) {
+      throw new AssertionError(
+          "stale entry at " + location + ": written for " + stored + ", read for " + hash);
+    }
     return Optional.ofNullable(updater.storage.get(location));
   }
 }

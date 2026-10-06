@@ -61,10 +61,7 @@ public final class EmbeddingParameters {
   /** Expected byte length of a storage tree key. */
   public static final int STORAGE_KEY_LENGTH = 66;
 
-  /**
-   * Opcode value of {@code PUSH1} (used by {@link
-   * org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.CodeChunkifier}).
-   */
+  /** Opcode before {@code PUSH1}: a {@code PUSHn} opcode minus this offset is {@code n}. */
   public static final int PUSH_OFFSET = 95;
 
   /** Opcode value of {@code PUSH1}. */

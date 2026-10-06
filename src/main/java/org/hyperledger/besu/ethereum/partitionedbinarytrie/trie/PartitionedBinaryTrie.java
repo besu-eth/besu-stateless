@@ -33,7 +33,6 @@ import org.hyperledger.besu.ethereum.trie.NodeUpdater;
 import org.hyperledger.besu.ethereum.trie.Proof;
 
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -376,30 +375,12 @@ public class PartitionedBinaryTrie {
     root.accept(Bytes.EMPTY, new CommitVisitor(nodeUpdater));
     final Bytes32 rootHash = getRootHash();
     if (rootHash.equals(TrieConstants.EMPTY_TRIE_ROOT)) {
-      // Commit never deletes stored nodes, so the root location still holds the pre-removal node.
-      // Overwrite it with the empty-root marker (same as the parallel trie's storeAndResetRoot) so
-      // a reload that only knows the root location resolves to an empty trie.
+      // Commit never deletes nodes: mark the root location empty for a reload from it.
       nodeUpdater.store(Bytes.EMPTY, rootHash, root.encode());
       root = TrieNode.empty();
     } else {
       root = factory.wrapStored(Bytes.EMPTY, rootHash);
     }
-  }
-
-  /**
-   * Returns up to {@code limit} entries with keys greater than or equal to {@code startKeyHash}.
-   *
-   * @param startKeyHash first key to include (right-padded to 32 bytes for ordering)
-   * @param limit maximum number of entries
-   * @return map of right-padded key to value
-   */
-  public Map<Bytes32, Bytes> entriesFrom(final Bytes32 startKeyHash, final int limit) {
-    final Map<Bytes32, byte[]> raw =
-        TrieNodeTraversal.entriesFrom(
-            root, startKeyHash.toArrayUnsafe(), startKeyHash.size(), limit);
-    final Map<Bytes32, Bytes> entries = new HashMap<>();
-    raw.forEach((key, value) -> entries.put(key, Bytes.wrap(value)));
-    return entries;
   }
 
   /** Visits every internal trie node in the trie (pre-order). */

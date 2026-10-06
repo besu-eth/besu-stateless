@@ -57,7 +57,7 @@ public class GetVisitor implements PathNodeVisitor {
     }
     final int prefixLen = branchNode.prefixLength();
     for (int i = 0; i < prefixLen; i++) {
-      if (depth + i >= keyBits || key.bitAt(depth + i) != branchNode.prefixBits()[i]) {
+      if (depth + i >= keyBits || key.bitAt(depth + i) != branchNode.prefixBit(i)) {
         // Compressed branch prefixes must match exactly; a mismatch proves absence.
         return NOT_FOUND;
       }

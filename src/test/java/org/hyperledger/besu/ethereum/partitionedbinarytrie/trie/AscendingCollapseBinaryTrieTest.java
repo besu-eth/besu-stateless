@@ -51,15 +51,15 @@ class AscendingCollapseBinaryTrieTest {
   @Test
   void acceptsVariableLengthKeysInByteOrder() {
     // Prefix-free keys whose numeric order (tuweni Bytes.compareTo) is the reverse of byte order.
-    final Bytes shortKey = Bytes.fromHexString("0x0002");
-    final Bytes longKey = Bytes.fromHexString("0x01");
+    final Bytes longKey = Bytes.fromHexString("0x0002");
+    final Bytes shortKey = Bytes.fromHexString("0x01");
     final AscendingCollapseBinaryTrie ascending = new AscendingCollapseBinaryTrie();
-    ascending.insert(shortKey, VALUE);
     ascending.insert(longKey, VALUE);
+    ascending.insert(shortKey, VALUE);
 
     final StoredPartitionedBinaryTrie reference = emptyStoredTrie();
-    reference.put(longKey, VALUE);
     reference.put(shortKey, VALUE);
+    reference.put(longKey, VALUE);
     assertThat(ascending.rootHash()).isEqualTo(reference.getRootHash());
   }
 
@@ -214,6 +214,84 @@ class AscendingCollapseBinaryTrieTest {
   }
 
   @Test
+  void preparedGroupOfSeveralStemsWritesTheSameNodesAsACommit() {
+    // Every key of zone 0x01 is prepared at once: a complete subtree over many stems, written
+    // node by node as the prepared subtree is built, unlike a single stem.
+    final Random random = new Random(19);
+    final Map<byte[], byte[]> entries = new TreeMap<>(Arrays::compareUnsigned);
+    for (int s = 0; s < 60; s++) {
+      final byte[] stem = new byte[33];
+      random.nextBytes(stem);
+      stem[0] = (byte) new int[] {0x00, 0x01, 0xff}[s % 3];
+      for (int l = 0, leaves = 1 + random.nextInt(4); l < leaves; l++) {
+        final byte[] key = Arrays.copyOf(stem, 34);
+        key[33] = (byte) random.nextInt(256);
+        entries.put(key, Bytes32.random(random).toArray());
+      }
+    }
+    final List<Bytes> zoneKeys = new ArrayList<>();
+    final List<Bytes> zoneValues = new ArrayList<>();
+    entries.forEach(
+        (key, value) -> {
+          if (key[0] == 0x01) {
+            zoneKeys.add(Bytes.wrap(key));
+            zoneValues.add(Bytes.wrap(value));
+          }
+        });
+
+    for (final boolean persisting : new boolean[] {false, true}) {
+      final NodeUpdaterMock bulkLoaded = new NodeUpdaterMock();
+      final AscendingCollapseBinaryTrie ascending =
+          persisting
+              ? new AscendingCollapseBinaryTrie(bulkLoaded)
+              : new AscendingCollapseBinaryTrie();
+      final AscendingCollapseBinaryTrie.Subtree zone = ascending.prepare(zoneKeys, zoneValues);
+      entries.forEach(
+          (key, value) -> {
+            if (key[0] == 0x00 || key[0] == (byte) 0xff) {
+              ascending.insert(Bytes.wrap(key), Bytes.wrap(value));
+            }
+            if (key[0] == 0x00 && Arrays.equals(key, lastKeyOfZone(entries, 0x00))) {
+              ascending.insert(zone);
+            }
+          });
+      final Bytes32 root = ascending.rootHash();
+
+      final NodeUpdaterMock committed = new NodeUpdaterMock();
+      final StoredPartitionedBinaryTrie reference = emptyStoredTrie();
+      entries.forEach((key, value) -> reference.put(Bytes.wrap(key), Bytes.wrap(value)));
+      reference.commit(committed);
+
+      assertThat(root).isEqualTo(reference.getRootHash());
+      if (persisting) {
+        assertThat(bulkLoaded.storage).isEqualTo(committed.storage);
+      }
+    }
+  }
+
+  @Test
+  void emptyPersistingTrieWritesTheEmptyRootMarker() {
+    final NodeUpdaterMock updater = new NodeUpdaterMock();
+    assertThat(new AscendingCollapseBinaryTrie(updater).rootHash())
+        .isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
+    assertThat(updater.storage).containsExactly(Map.entry(Bytes.EMPTY, Bytes.EMPTY));
+  }
+
+  @Test
+  void insertOfAPreparedSubtreeChecksOrderAndSealing() {
+    final AscendingCollapseBinaryTrie trie = new AscendingCollapseBinaryTrie();
+    final AscendingCollapseBinaryTrie.Subtree early =
+        trie.prepare(List.of(Bytes.fromHexString("0x0100")), List.of(VALUE));
+    final AscendingCollapseBinaryTrie.Subtree late =
+        trie.prepare(List.of(Bytes.fromHexString("0x0300")), List.of(VALUE));
+    trie.insert(Bytes.fromHexString("0x0200"), VALUE);
+
+    assertThatThrownBy(() -> trie.insert(early)).isInstanceOf(IllegalArgumentException.class);
+    trie.rootHash();
+    assertThatThrownBy(() -> trie.insert(late)).isInstanceOf(IllegalStateException.class);
+  }
+
+  @Test
   void rejectsALaterKeyInsideAPreparedSubtree() {
     final AscendingCollapseBinaryTrie trie = new AscendingCollapseBinaryTrie();
     trie.insert(
@@ -228,14 +306,42 @@ class AscendingCollapseBinaryTrieTest {
   }
 
   @Test
-  void prepareRejectsKeysOutOfOrder() {
+  void preparedKeysWiderThanTheirSlotAreRejected() {
+    // 0x40 joins 0x00 at bit 2, but 0x40 and 0xc0 split at bit 0.
     final AscendingCollapseBinaryTrie trie = new AscendingCollapseBinaryTrie();
-    assertThatThrownBy(
-            () ->
-                trie.prepare(
-                    List.of(Bytes.fromHexString("0x02"), Bytes.fromHexString("0x01")),
-                    List.of(VALUE, VALUE)))
+    trie.insert(Bytes.fromHexString("0x00"), VALUE);
+    final AscendingCollapseBinaryTrie.Subtree subtree =
+        trie.prepare(
+            List.of(Bytes.fromHexString("0x40"), Bytes.fromHexString("0xc0")),
+            List.of(VALUE, VALUE));
+
+    assertThatThrownBy(() -> trie.insert(subtree))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("complete subtree");
+  }
+
+  @Test
+  void prepareRejectsMalformedInput() {
+    final AscendingCollapseBinaryTrie trie = new AscendingCollapseBinaryTrie();
+    final Bytes low = Bytes.fromHexString("0x01");
+    final Bytes high = Bytes.fromHexString("0x02");
+    assertThatThrownBy(() -> trie.prepare(List.of(high, low), List.of(VALUE, VALUE)))
         .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> trie.prepare(List.of(), List.of()))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> trie.prepare(List.of(low, high), List.of(VALUE)))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  /** The largest key of {@code zone}, after which a group of the next zone may come. */
+  private static byte[] lastKeyOfZone(final Map<byte[], byte[]> entries, final int zone) {
+    byte[] last = null;
+    for (final byte[] key : entries.keySet()) {
+      if (key[0] == (byte) zone) {
+        last = key;
+      }
+    }
+    return last;
   }
 
   private static StoredPartitionedBinaryTrie emptyStoredTrie() {

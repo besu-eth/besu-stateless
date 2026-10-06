@@ -9,13 +9,13 @@ The trie model follows the [execution-specs binary trie proposal](https://github
 
 ## Features
 
-- **Compressed binary radix trie** — `BranchNode` and `LeafNode` only (no stem nodes, no RLP)
+- **Compressed binary radix trie** — `BranchNode` and `LeafNode` in memory (no RLP); the database holds one entry per stem
 - **BLAKE3 merkleization** with domain-separating node tags
 - **EIP-8297 embedding** — zone-based key derivation (account, code, storage, EIP-7702 delegation)
 - **Stored trie** with `NodeLoader` / `NodeUpdater` and Tuweni `Bytes` API (`put` / `remove`, `putDeferred`, `commit`, `getRootHash`)
 - **Parallel commit** via `ParallelStoredPartitionedBinaryTrie`
-- **Merkle proofs** — generation and verification
-- **Spec-faithful test oracle** — `BinaryTrie` / `MutableBinaryTrie` under `src/test/java/.../trie/reference` (not published in the JAR)
+- **Merkle proofs** — `getValueWithProof`
+- **Spec-faithful test oracle** — `BinaryTrie` under `src/test/java/.../trie/reference` (not published in the JAR)
 
 ## Architecture
 
@@ -41,7 +41,7 @@ org.hyperledger.besu.ethereum.partitionedbinarytrie
 | `trie.node` | `BranchNode`, `LeafNode`, `StoredTrieNode` |
 | `trie.visitor` | Get/Put/Remove/Commit visitors |
 | `embedding` (test) | EIP-8297 embedding section tests |
-| `trie.reference` (test) | Spec conformance oracle (`BinaryTrie`, `MutableBinaryTrie`) |
+| `trie.reference` (test) | Spec conformance oracle (`BinaryTrie`) |
 
 Hot paths use `byte[]` internally and Tuweni `Bytes` at the public API; `Blake3Hasher` and `ByteTrieOps` reuse thread-local buffers to avoid allocations.
 

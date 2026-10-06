@@ -97,19 +97,22 @@ public final class StoredTrieNodeFactory {
     final byte[] raw = encoded.toArrayUnsafe();
     final int tag = raw[0] & 0xFF;
     if (tag == TrieNodeCodec.STEM_TAG) {
-      // Rebuild the stem's leaves and the branches between them.
+      // Rebuild the stem's leaves and the branches between them. Only the top has an entry of
+      // its own, so it alone is clean.
       final List<LeafNode> leaves = new ArrayList<>();
       TrieNodeCodec.decodeStem(
-          raw, (key, value) -> leaves.add(new LeafNode(key, key.length, value, true)));
-      return stemSubtree(leaves, 0, leaves.size(), location.size());
+          raw, (key, value) -> leaves.add(new LeafNode(key, key.length, value, false)));
+      final TrieNode top =
+          stemSubtree(leaves, 0, leaves.size(), TrieNodeCodec.locationDepth(location));
+      top.markClean();
+      return top;
     }
     if (tag == TrieNodeCodec.BRANCH_TAG) {
       // Wire layout (inverse of TrieNodeCodec.encodeBranch):
       // [tag | prefixLen (2) | packed prefix | leftHash (32) | rightHash (32)]
       // prefixLen: prefix length in bits (shared path before the left/right split).
       final int prefixLen = TrieNodeCodec.branchPrefixLength(raw);
-      final byte[] prefixBits =
-          TrieNodeCodec.unpackPrefix(raw, TrieNodeCodec.BRANCH_PREFIX_OFFSET, prefixLen);
+      final byte[] prefix = TrieNodeCodec.branchPrefix(raw);
 
       // The two child hashes close the encoding.
       final int rightOffset = raw.length - Bytes32.SIZE;
@@ -117,15 +120,11 @@ public final class StoredTrieNodeFactory {
       final Bytes32 leftHash = Bytes32.wrap(Arrays.copyOfRange(raw, leftOffset, rightOffset));
       final Bytes32 rightHash = Bytes32.wrap(Arrays.copyOfRange(raw, rightOffset, raw.length));
       // Child paths: current location + prefix bits + split bit (0=left, 1=right).
-      final Bytes leftLoc = TrieNodeCodec.childLocation(location, prefixBits, prefixLen, 0);
-      final Bytes rightLoc = TrieNodeCodec.childLocation(location, prefixBits, prefixLen, 1);
+      final Bytes leftLoc = TrieNodeCodec.childLocation(location, prefix, prefixLen, 0);
+      final Bytes rightLoc = TrieNodeCodec.childLocation(location, prefix, prefixLen, 1);
       // Empty hash → NullNode singleton (never a StoredTrieNode that would load from disk).
       return new BranchNode(
-          prefixBits,
-          prefixLen,
-          wrapStored(leftLoc, leftHash),
-          wrapStored(rightLoc, rightHash),
-          true);
+          prefix, prefixLen, wrapStored(leftLoc, leftHash), wrapStored(rightLoc, rightHash), true);
     }
     throw new IllegalArgumentException("Unknown node tag: " + tag);
   }
@@ -148,10 +147,10 @@ public final class StoredTrieNodeFactory {
       middle++;
     }
     return new BranchNode(
-        ByteTrieOps.expandBits(first, depth, split),
+        ByteTrieOps.sliceBits(first, depth, split),
         split - depth,
         stemSubtree(leaves, from, middle, split + 1),
         stemSubtree(leaves, middle, to, split + 1),
-        true);
+        false);
   }
 }
