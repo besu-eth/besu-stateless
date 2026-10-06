@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory;
 
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.TrieNodeCodec;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.bytes.ByteTrieOps;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieConstants;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.BranchNode;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.LeafNode;
@@ -23,7 +24,9 @@ import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.TrieNode;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.NodeLoader;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 
 import com.google.common.base.Supplier;
@@ -93,26 +96,26 @@ public final class StoredTrieNodeFactory {
     }
     final byte[] raw = encoded.toArrayUnsafe();
     final int tag = raw[0] & 0xFF;
-    if (tag == TrieNodeCodec.LEAF_TAG) {
-      // Wire layout: [tag | keyLen (4) | key (keyLen) | value (32)]
-      final int keyLen = readInt(raw, 1);
-      final byte[] key = Arrays.copyOfRange(raw, 5, 5 + keyLen);
-      final byte[] value = Arrays.copyOfRange(raw, 5 + keyLen, 5 + keyLen + 32);
-      return new LeafNode(key, keyLen, value, true);
+    if (tag == TrieNodeCodec.STEM_TAG) {
+      // Rebuild the stem's leaves and the branches between them.
+      final List<LeafNode> leaves = new ArrayList<>();
+      TrieNodeCodec.decodeStem(
+          raw, (key, value) -> leaves.add(new LeafNode(key, key.length, value, true)));
+      return stemSubtree(leaves, 0, leaves.size(), location.size());
     }
     if (tag == TrieNodeCodec.BRANCH_TAG) {
       // Wire layout (inverse of TrieNodeCodec.encodeBranch):
-      // [tag | prefixLen (4) | packed prefix | leftHash (32) | rightHash (32)]
-      //  0       1..4           5..cursor-1      cursor       cursor+32
+      // [tag | prefixLen (2) | packed prefix | leftHash (32) | rightHash (32)]
       // prefixLen: prefix length in bits (shared path before the left/right split).
-      final int prefixLen = readInt(raw, 1);
-      // packedLen: on-disk size of those bits (ceil(prefixLen / 8) bytes, MSB-first).
-      final int packedLen = (prefixLen + 7) / 8;
-      final byte[] prefixBits = TrieNodeCodec.unpackPrefix(raw, 5, prefixLen);
+      final int prefixLen = TrieNodeCodec.branchPrefixLength(raw);
+      final byte[] prefixBits =
+          TrieNodeCodec.unpackPrefix(raw, TrieNodeCodec.BRANCH_PREFIX_OFFSET, prefixLen);
 
-      final int cursor = 5 + packedLen;
-      final Bytes32 leftHash = Bytes32.wrap(Arrays.copyOfRange(raw, cursor, cursor + 32));
-      final Bytes32 rightHash = Bytes32.wrap(Arrays.copyOfRange(raw, cursor + 32, cursor + 64));
+      // The two child hashes close the encoding.
+      final int rightOffset = raw.length - Bytes32.SIZE;
+      final int leftOffset = rightOffset - Bytes32.SIZE;
+      final Bytes32 leftHash = Bytes32.wrap(Arrays.copyOfRange(raw, leftOffset, rightOffset));
+      final Bytes32 rightHash = Bytes32.wrap(Arrays.copyOfRange(raw, rightOffset, raw.length));
       // Child paths: current location + prefix bits + split bit (0=left, 1=right).
       final Bytes leftLoc = TrieNodeCodec.childLocation(location, prefixBits, prefixLen, 0);
       final Bytes rightLoc = TrieNodeCodec.childLocation(location, prefixBits, prefixLen, 1);
@@ -127,10 +130,28 @@ public final class StoredTrieNodeFactory {
     throw new IllegalArgumentException("Unknown node tag: " + tag);
   }
 
-  private static int readInt(final byte[] raw, final int offset) {
-    return ((raw[offset] & 0xFF) << 24)
-        | ((raw[offset + 1] & 0xFF) << 16)
-        | ((raw[offset + 2] & 0xFF) << 8)
-        | (raw[offset + 3] & 0xFF);
+  /** Rebuilds the subtree of {@code leaves[from, to)}, sorted, attached at bit {@code depth}. */
+  private static TrieNode stemSubtree(
+      final List<LeafNode> leaves, final int from, final int to, final int depth) {
+    if (to - from == 1) {
+      return leaves.get(from);
+    }
+    // The range splits where its first and last keys diverge.
+    final byte[] first = leaves.get(from).keyBytes();
+    final byte[] last = leaves.get(to - 1).keyBytes();
+    int split = depth;
+    while (ByteTrieOps.bitAt(first, split) == ByteTrieOps.bitAt(last, split)) {
+      split++;
+    }
+    int middle = from + 1;
+    while (ByteTrieOps.bitAt(leaves.get(middle).keyBytes(), split) == 0) {
+      middle++;
+    }
+    return new BranchNode(
+        ByteTrieOps.expandBits(first, depth, split),
+        split - depth,
+        stemSubtree(leaves, from, middle, split + 1),
+        stemSubtree(leaves, middle, to, split + 1),
+        true);
   }
 }

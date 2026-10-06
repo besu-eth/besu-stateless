@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie;
 
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.TrieNodeCodec;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKey;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.StoredTrieNodeFactory;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.BranchNode;
@@ -45,16 +46,16 @@ import org.apache.tuweni.bytes.Bytes32;
  * it collapses and the root on {@link #rootHash()}, at the same locations and encodings {@link
  * StoredPartitionedBinaryTrie#commit} uses: a bulk load in one sequential pass with O(depth) heap.
  *
- * <p>Most of the hashing can move off the inserting thread: {@link #prepare} builds, hashes and
- * encodes a group of keys that forms a complete subtree (e.g. every leaf of one stem), from any
- * thread, and {@link #insert(Subtree)} then attaches it. Only the subtree's top node depends on
- * where it lands, so that node alone is hashed on the inserting thread.
+ * <p>Most of the hashing can move off the inserting thread: {@link #prepare} builds and hashes a
+ * group of keys that forms a complete subtree (e.g. every leaf of one stem), from any thread, and
+ * {@link #insert(Subtree)} then attaches it. Only the subtree's top node depends on where it lands,
+ * so that node alone is hashed on the inserting thread.
  */
 public final class AscendingCollapseBinaryTrie {
 
   /**
-   * Keys prepared off the inserting thread: their subtree, below its top node, is built, hashed and
-   * (when persisting) encoded, and replaced by hash stubs.
+   * Keys prepared off the inserting thread: their subtree, below its top node, is built and hashed,
+   * then replaced by hash stubs unless it is one stem to persist.
    */
   public static final class Subtree {
     private final byte[] firstKey;
@@ -149,10 +150,9 @@ public final class AscendingCollapseBinaryTrie {
   }
 
   /**
-   * Builds, hashes and encodes {@code keys} (strictly ascending, with their {@code values}) as a
-   * subtree to {@link #insert(Subtree)} later. Thread-safe: it reads no state of this trie. The
-   * keys must be every key the trie will hold under their common prefix, e.g. all the leaves of a
-   * stem.
+   * Builds and hashes {@code keys} (strictly ascending, with their {@code values}) as a subtree to
+   * {@link #insert(Subtree)} later. Thread-safe: it reads no state of this trie. The keys must be
+   * every key the trie will hold under their common prefix, e.g. all the leaves of a stem.
    *
    * @param keys the keys, strictly ascending
    * @param values their 32-byte values
@@ -179,10 +179,16 @@ public final class AscendingCollapseBinaryTrie {
     final byte[] firstKey = keys.getFirst().toArray();
     final List<NodeWrite> writes = new ArrayList<>();
     if (top instanceof BranchNode branch) {
-      final TrieKey first = TrieKey.of(firstKey, firstKey.length);
       final int split = branch.prefixLength();
-      branch.setLeftChild(completed(branch.leftChild(), first, split, 0, writes));
-      branch.setRightChild(completed(branch.rightChild(), first, split, 1, writes));
+      if (nodeUpdater.isPresent() && split >= TrieNodeCodec.stemBits(firstKey.length)) {
+        // One stem, stored whole where its top lands.
+        branch.leftChild().merkleHashBytes();
+        branch.rightChild().merkleHashBytes();
+      } else {
+        final TrieKey first = TrieKey.of(firstKey, firstKey.length);
+        branch.setLeftChild(completed(branch.leftChild(), first, split, 0, writes));
+        branch.setRightChild(completed(branch.rightChild(), first, split, 1, writes));
+      }
     } else {
       top.merkleHashBytes();
     }

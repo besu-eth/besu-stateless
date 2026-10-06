@@ -32,6 +32,7 @@ import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor.RemoveVi
 import org.hyperledger.besu.ethereum.trie.NodeLoader;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
@@ -54,7 +55,7 @@ class TrieNodeCodecTest {
     final Bytes encoded = TrieNodeCodec.encodeLeaf(key, 4, value);
 
     assertThat(encoded.get(0)).isEqualTo(TrieNodeCodec.LEAF_TAG);
-    assertThat(encoded.size()).isEqualTo(1 + 5 + 4 + 32);
+    assertThat(encoded.size()).isEqualTo(1 + 4 + 32);
 
     final NodeUpdaterMock updater = new NodeUpdaterMock();
     final StoredTrieNodeFactory factory = new StoredTrieNodeFactory(new NodeLoaderMock(updater));
@@ -88,6 +89,83 @@ class TrieNodeCodecTest {
     assertThat(decoded.accept(new GetVisitor(), TrieKey.of(keyB, 2), 0).leafValue())
         .contains(valueB);
     assertThat(decoded.merkleHashBytes()).isEqualTo(rootHash);
+  }
+
+  @Test
+  void leafWithLongestKeyRoundTrips() {
+    final byte[] key = new byte[TrieConstants.MAX_KEY_LENGTH];
+    Arrays.fill(key, (byte) 0x5A);
+    final byte[] value = Bytes32.repeat((byte) 0x42).toArrayUnsafe();
+    final LeafNode leaf = new LeafNode(key, key.length, value, false);
+
+    assertThat(leaf.encode().size()).isEqualTo(1 + key.length + 32);
+
+    final NodeUpdaterMock updater = new NodeUpdaterMock();
+    final StoredTrieNodeFactory factory = new StoredTrieNodeFactory(new NodeLoaderMock(updater));
+    leaf.commit(Bytes.EMPTY, updater);
+    final TrieNode decoded = factory.retrieve(Bytes.EMPTY, Bytes32.wrap(leaf.merkleHashBytes()));
+    assertThat(decoded.accept(new GetVisitor(), TrieKey.of(key, key.length), 0).leafValue())
+        .contains(value);
+    assertThat(decoded.merkleHashBytes()).isEqualTo(ByteTrieOps.leafHash(key, key.length, value));
+  }
+
+  @Test
+  void branchPrefixLongerThanOneByteRoundTrips() {
+    // Keys differing only in their last bit: the root branch carries a 319-bit prefix.
+    final byte[] keyA = new byte[40];
+    final byte[] keyB = new byte[40];
+    keyB[39] = 1;
+    final byte[] valueA = Bytes32.repeat((byte) 0x01).toArrayUnsafe();
+    final byte[] valueB = Bytes32.repeat((byte) 0x02).toArrayUnsafe();
+
+    final TrieNode root =
+        new LeafNode(keyA, 40, valueA, false)
+            .accept(new PutVisitor(valueB), TrieKey.of(keyB, 40), 0);
+    final byte[] encoded = root.encode().toArrayUnsafe();
+
+    assertThat(TrieNodeCodec.branchPrefixLength(encoded)).isEqualTo(319);
+    assertThat(encoded).hasSize(TrieNodeCodec.BRANCH_PREFIX_OFFSET + 40 + 32 + 32);
+
+    final NodeUpdaterMock updater = new NodeUpdaterMock();
+    final StoredTrieNodeFactory factory = new StoredTrieNodeFactory(new NodeLoaderMock(updater));
+    root.commit(Bytes.EMPTY, updater);
+    final TrieNode decoded = factory.retrieve(Bytes.EMPTY, Bytes32.wrap(root.merkleHashBytes()));
+    assertThat(decoded.accept(new GetVisitor(), TrieKey.of(keyA, 40), 0).leafValue())
+        .contains(valueA);
+    assertThat(decoded.accept(new GetVisitor(), TrieKey.of(keyB, 40), 0).leafValue())
+        .contains(valueB);
+    assertThat(decoded.merkleHashBytes()).isEqualTo(root.merkleHashBytes());
+  }
+
+  @Test
+  void stemEncodeDecodeRoundTrip() {
+    final byte[] stem = Bytes32.repeat((byte) 0xAB).toArrayUnsafe();
+    final byte[] suffixes = {0x00, 0x01, 0x40};
+    final byte[][] values = {
+      Bytes32.repeat((byte) 1).toArrayUnsafe(),
+      Bytes32.repeat((byte) 2).toArrayUnsafe(),
+      Bytes32.repeat((byte) 3).toArrayUnsafe()
+    };
+    final Bytes encoded = TrieNodeCodec.encodeStem(stem, stem.length, suffixes, values);
+
+    assertThat(encoded.get(0)).isEqualTo(TrieNodeCodec.STEM_TAG);
+    assertThat(encoded.size()).isEqualTo(2 + 32 + 3 * (1 + 32));
+
+    final List<Bytes> keys = new ArrayList<>();
+    final List<Bytes> decodedValues = new ArrayList<>();
+    TrieNodeCodec.decodeStem(
+        encoded.toArrayUnsafe(),
+        (key, value) -> {
+          keys.add(Bytes.wrap(key));
+          decodedValues.add(Bytes.wrap(value));
+        });
+    assertThat(keys)
+        .containsExactly(
+            Bytes.concatenate(Bytes.wrap(stem), Bytes.of(0x00)),
+            Bytes.concatenate(Bytes.wrap(stem), Bytes.of(0x01)),
+            Bytes.concatenate(Bytes.wrap(stem), Bytes.of(0x40)));
+    assertThat(decodedValues)
+        .containsExactly(Bytes.wrap(values[0]), Bytes.wrap(values[1]), Bytes.wrap(values[2]));
   }
 
   @Test
@@ -149,7 +227,7 @@ class TrieNodeCodecTest {
         packed[i / 8] |= (byte) (1 << (7 - i % 8));
       }
     }
-    assertThat(TrieNodeCodec.unpackPrefix(Bytes.wrap(packed), prefixLen)).isEqualTo(prefixBits);
+    assertThat(TrieNodeCodec.unpackPrefix(packed, 0, prefixLen)).isEqualTo(prefixBits);
   }
 
   /** Records every storage location requested through {@link NodeLoader#getNode}. */

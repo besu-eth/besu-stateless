@@ -15,14 +15,21 @@
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.entry;
 
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.BasicDataEncoder;
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.TrieNodeCodec;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieConstants;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKeyDerivation;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.NodeLoaderMock;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.NodeUpdaterMock;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.PartitionedBinaryTrieFactory;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference.BinaryTrie;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Random;
+import java.util.stream.Collectors;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -106,7 +113,53 @@ class TrieStorageTest {
       assertThat(reloaded.getRootHash()).isEqualTo(trie.getRootHash());
     }
 
-    assertThat(nodeUpdater.storage.size()).isGreaterThan(1);
+    // One-byte keys share the empty stem: a single entry at the root.
+    assertThat(nodeUpdater.storage).containsOnlyKeys(Bytes.EMPTY);
+  }
+
+  @Test
+  void eachStemIsStoredAsOneEntry() {
+    final Map<Bytes, Bytes32> entries = accountHeaders(50, new Random(3));
+    final StoredPartitionedBinaryTrie trie = factory.create();
+    entries.forEach((key, value) -> trie.put(key, value));
+    trie.commit(nodeUpdater);
+
+    // 50 stems and the 49 branches joining them.
+    assertThat(entriesByTag(nodeUpdater))
+        .containsOnly(entry(TrieNodeCodec.STEM_TAG, 50L), entry(TrieNodeCodec.BRANCH_TAG, 49L));
+
+    final StoredPartitionedBinaryTrie reloaded = factory.create();
+    entries.forEach((key, value) -> assertThat(reloaded.get(key)).contains(value));
+    assertThat(reloaded.getRootHash()).isEqualTo(trie.getRootHash());
+  }
+
+  @Test
+  void updatingOneLeafRewritesOnlyItsStemAndTheBranchesAbove() {
+    final Map<Bytes, Bytes32> entries = accountHeaders(50, new Random(5));
+    final StoredPartitionedBinaryTrie trie = factory.create();
+    entries.forEach((key, value) -> trie.put(key, value));
+    trie.commit(nodeUpdater);
+
+    final Bytes updatedKey = entries.keySet().iterator().next();
+    final Bytes32 updatedValue = Bytes32.repeat((byte) 0x77);
+    final StoredPartitionedBinaryTrie reloaded = factory.create();
+    reloaded.put(updatedKey, updatedValue);
+    final NodeUpdaterMock writes = new NodeUpdaterMock();
+    reloaded.commit(writes);
+
+    assertThat(entriesByTag(writes))
+        .containsOnlyKeys(TrieNodeCodec.STEM_TAG, TrieNodeCodec.BRANCH_TAG);
+    assertThat(entriesByTag(writes)).containsEntry(TrieNodeCodec.STEM_TAG, 1L);
+    // The stem is rewritten whole.
+    final Map<Bytes, Bytes> stem = new HashMap<>();
+    writes.storage.values().stream()
+        .filter(value -> value.get(0) == TrieNodeCodec.STEM_TAG)
+        .forEach(
+            value ->
+                TrieNodeCodec.decodeStem(
+                    value.toArrayUnsafe(),
+                    (key, leafValue) -> stem.put(Bytes.wrap(key), Bytes.wrap(leafValue))));
+    assertThat(stem).hasSize(4).containsEntry(updatedKey, updatedValue);
   }
 
   @Test
@@ -158,5 +211,27 @@ class TrieStorageTest {
     spec.remove(key);
     assertThat(trie.getRootHash()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
     assertThat(trie.getRootHash()).isEqualTo(spec.root());
+  }
+
+  /** Basic data, code hash and two header slots of random accounts. */
+  private static Map<Bytes, Bytes32> accountHeaders(final int accounts, final Random random) {
+    final Map<Bytes, Bytes32> entries = new HashMap<>();
+    for (int i = 0; i < accounts; i++) {
+      final Bytes32 address = Bytes32.random(random);
+      entries.put(TrieKeyDerivation.getTreeKeyForBasicData(address), Bytes32.random(random));
+      entries.put(TrieKeyDerivation.getTreeKeyForCodeHash(address), Bytes32.random(random));
+      for (int slot = 0; slot < 2; slot++) {
+        entries.put(
+            TrieKeyDerivation.getTreeKeyForStorageSlot(address, UInt256.valueOf(slot)),
+            Bytes32.random(random));
+      }
+    }
+    return entries;
+  }
+
+  /** Number of stored entries per node tag. */
+  private static Map<Byte, Long> entriesByTag(final NodeUpdaterMock updater) {
+    return updater.storage.values().stream()
+        .collect(Collectors.groupingBy(value -> value.get(0), Collectors.counting()));
   }
 }

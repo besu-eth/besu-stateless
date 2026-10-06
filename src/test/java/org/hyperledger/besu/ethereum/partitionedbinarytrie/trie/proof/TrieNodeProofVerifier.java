@@ -110,12 +110,13 @@ public final class TrieNodeProofVerifier {
       return decodeLeafOrBranchOnly(encoded);
     }
     if (tag == TrieNodeCodec.BRANCH_TAG) {
-      final int prefixLen = encoded.getInt(1);
-      final int packedLen = (prefixLen + 7) / 8;
-      final int cursor = 5 + packedLen;
-      final byte[] prefixBits = TrieNodeCodec.unpackPrefix(encoded.slice(5, packedLen), prefixLen);
-      final Bytes32 leftHash = Bytes32.wrap(encoded.slice(cursor, 32).toArrayUnsafe());
-      final Bytes32 rightHash = Bytes32.wrap(encoded.slice(cursor + 32, 32).toArrayUnsafe());
+      final byte[] raw = encoded.toArrayUnsafe();
+      final int prefixLen = TrieNodeCodec.branchPrefixLength(raw);
+      final byte[] prefixBits =
+          TrieNodeCodec.unpackPrefix(raw, TrieNodeCodec.BRANCH_PREFIX_OFFSET, prefixLen);
+      final Bytes32 leftHash = Bytes32.wrap(encoded.slice(encoded.size() - 64, 32).toArrayUnsafe());
+      final Bytes32 rightHash =
+          Bytes32.wrap(encoded.slice(encoded.size() - 32, 32).toArrayUnsafe());
       final Bytes leftLoc = TrieNodeCodec.childLocation(location, prefixBits, prefixLen, 0);
       final Bytes rightLoc = TrieNodeCodec.childLocation(location, prefixBits, prefixLen, 1);
       return new BranchNode(
@@ -143,18 +144,19 @@ public final class TrieNodeProofVerifier {
   private static TrieNode decodeLeafOrBranchOnly(final Bytes encoded) {
     final int tag = encoded.get(0) & 0xFF;
     if (tag == TrieNodeCodec.LEAF_TAG) {
-      final int keyLen = encoded.getInt(1);
-      final byte[] key = encoded.slice(5, keyLen).toArrayUnsafe();
-      final byte[] value = encoded.slice(5 + keyLen, 32).toArrayUnsafe();
+      final int keyLen = encoded.size() - 1 - TrieConstants.VALUE_LENGTH;
+      final byte[] key = encoded.slice(1, keyLen).toArrayUnsafe();
+      final byte[] value = encoded.slice(1 + keyLen, TrieConstants.VALUE_LENGTH).toArrayUnsafe();
       return new LeafNode(key, keyLen, value, true);
     }
     if (tag == TrieNodeCodec.BRANCH_TAG) {
-      final int prefixLen = encoded.getInt(1);
-      final int packedLen = (prefixLen + 7) / 8;
-      final int cursor = 5 + packedLen;
-      final byte[] prefixBits = TrieNodeCodec.unpackPrefix(encoded.slice(5, packedLen), prefixLen);
-      final Bytes32 leftHash = Bytes32.wrap(encoded.slice(cursor, 32).toArrayUnsafe());
-      final Bytes32 rightHash = Bytes32.wrap(encoded.slice(cursor + 32, 32).toArrayUnsafe());
+      final byte[] raw = encoded.toArrayUnsafe();
+      final int prefixLen = TrieNodeCodec.branchPrefixLength(raw);
+      final byte[] prefixBits =
+          TrieNodeCodec.unpackPrefix(raw, TrieNodeCodec.BRANCH_PREFIX_OFFSET, prefixLen);
+      final Bytes32 leftHash = Bytes32.wrap(encoded.slice(encoded.size() - 64, 32).toArrayUnsafe());
+      final Bytes32 rightHash =
+          Bytes32.wrap(encoded.slice(encoded.size() - 32, 32).toArrayUnsafe());
       return new BranchNode(
           prefixBits,
           prefixLen,

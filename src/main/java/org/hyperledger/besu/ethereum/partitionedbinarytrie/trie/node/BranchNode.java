@@ -39,8 +39,8 @@ import org.apache.tuweni.bytes.Bytes;
  * descend using {@link TrieKey#bitAt(int)} at {@code depth + prefixLen}.
  *
  * <p>On disk ({@link TrieNodeCodec#encodeBranch}), only {@code prefixLen} (in bits) and the packed
- * prefix are stored with left/right child hashes. Children may be {@link StoredTrieNode} stubs
- * loaded lazily from storage.
+ * prefix are stored with left/right child hashes, and only above the stems. Children may be {@link
+ * StoredTrieNode} stubs loaded lazily from storage.
  *
  * <p>Merkle hash: BLAKE3 branch tag over the packed prefix and both child hashes (EIP-8297).
  */

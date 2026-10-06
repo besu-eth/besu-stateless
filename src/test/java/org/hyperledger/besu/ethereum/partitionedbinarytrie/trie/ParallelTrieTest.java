@@ -24,13 +24,17 @@ import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.Partitio
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.reference.BinaryTrie;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Random;
 import java.util.concurrent.Executors;
+import java.util.function.Function;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
+import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -273,6 +277,208 @@ class ParallelTrieTest {
     assertThat(parallelTrie.get(createKey(2))).isEmpty();
     assertThat(parallelTrie.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
     assertThat(parallelTrie.getRootHash()).isEqualTo(TrieConstants.EMPTY_TRIE_ROOT);
+  }
+
+  @Test
+  void parallelCommitStoresTheSameEntriesAsASequentialCommit() {
+    final Random random = new Random(17);
+    final List<Bytes32> addresses = new ArrayList<>();
+    for (int i = 0; i < 300; i++) {
+      addresses.add(Bytes32.random(random));
+    }
+    // Inserts, then updates, then removals.
+    for (int round = 0; round < 3; round++) {
+      for (final Bytes32 address : addresses) {
+        for (int slot = 0; slot < 1 + random.nextInt(round == 0 ? 6 : 2); slot++) {
+          final Bytes key =
+              TrieKeyDerivation.getTreeKeyForStorageSlot(
+                  address, UInt256.valueOf(random.nextInt(300)));
+          if (round == 2 && random.nextBoolean()) {
+            parallelTrie.remove(key);
+            sequentialTrie.remove(key);
+          } else {
+            final Bytes32 value = Bytes32.random(random);
+            parallelTrie.put(key, value);
+            sequentialTrie.put(key, value);
+          }
+        }
+        if (round == 0) {
+          final Bytes key = TrieKeyDerivation.getTreeKeyForBasicData(address);
+          final Bytes32 value = Bytes32.random(random);
+          parallelTrie.put(key, value);
+          sequentialTrie.put(key, value);
+        }
+      }
+      parallelTrie.commit(parallelUpdater);
+      sequentialTrie.commit(sequentialUpdater);
+
+      assertThat(parallelTrie.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
+      assertThat(parallelUpdater.storage)
+          .as("round %d", round)
+          .isEqualTo(sequentialUpdater.storage);
+      parallelTrie =
+          new ParallelStoredPartitionedBinaryTrie(parallelLoader, parallelTrie.getRootHash());
+      sequentialTrie =
+          new StoredPartitionedBinaryTrie(sequentialLoader, sequentialTrie.getRootHash());
+    }
+  }
+
+  @Test
+  void updatesLeavingAStemPrefixMatchSequential() {
+    // A stem's top branch carries the rest of the stem in its prefix: hundreds of bits.
+    final Random random = new Random(23);
+    final List<Bytes32> addresses = new ArrayList<>();
+    for (int i = 0; i < 50; i++) {
+      addresses.add(Bytes32.random(random));
+    }
+    final Map<Bytes, Bytes32> expected = new HashMap<>();
+    for (final Bytes32 address : addresses) {
+      expected.put(TrieKeyDerivation.getTreeKeyForBasicData(address), Bytes32.random(random));
+      expected.put(TrieKeyDerivation.getTreeKeyForCodeHash(address), Bytes32.random(random));
+      expected.put(storageSlot(address, 256), Bytes32.random(random));
+      expected.put(storageSlot(address, 257), Bytes32.random(random));
+    }
+    expected.forEach(
+        (key, value) -> {
+          parallelTrie.put(key, value);
+          sequentialTrie.put(key, value);
+        });
+    parallelTrie.commit(parallelUpdater);
+    sequentialTrie.commit(sequentialUpdater);
+
+    // Header slot 0 (sub-index 64) and storage slot 384 (0x80) leave those prefixes.
+    final Map<Bytes, Bytes32> batch = new HashMap<>();
+    for (final Bytes32 address : addresses) {
+      batch.put(TrieKeyDerivation.getTreeKeyForBasicData(address), Bytes32.random(random));
+      batch.put(storageSlot(address, 0), Bytes32.random(random));
+      batch.put(storageSlot(address, 257), Bytes32.random(random));
+      batch.put(storageSlot(address, 384), Bytes32.random(random));
+    }
+    batch.forEach(
+        (key, value) -> {
+          parallelTrie.put(key, value);
+          sequentialTrie.put(key, value);
+        });
+    expected.putAll(batch);
+    parallelTrie.commit(parallelUpdater);
+    sequentialTrie.commit(sequentialUpdater);
+
+    assertThat(parallelTrie.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
+    assertThat(parallelUpdater.storage).isEqualTo(sequentialUpdater.storage);
+    final ParallelStoredPartitionedBinaryTrie reloaded =
+        new ParallelStoredPartitionedBinaryTrie(parallelLoader, parallelTrie.getRootHash());
+    expected.forEach((key, value) -> assertThat(reloaded.get(key)).contains(value));
+  }
+
+  @Test
+  void splitPrefixCollapsesWhenASideEndsEmpty() {
+    // Each batch splits the stems' prefixes, then leaves one side or both empty.
+    final Random random = new Random(29);
+    final List<Function<Bytes32, Map<Bytes, Optional<Bytes32>>>> batches =
+        List.of(
+            // Nothing lands on the new side.
+            address ->
+                Map.of(
+                    TrieKeyDerivation.getTreeKeyForBasicData(address),
+                    Optional.of(Bytes32.random(random)),
+                    storageSlot(address, 0),
+                    Optional.empty(),
+                    storageSlot(address, 257),
+                    Optional.of(Bytes32.random(random)),
+                    storageSlot(address, 384),
+                    Optional.empty()),
+            // The original side empties.
+            address ->
+                Map.of(
+                    TrieKeyDerivation.getTreeKeyForBasicData(address),
+                    Optional.empty(),
+                    TrieKeyDerivation.getTreeKeyForCodeHash(address),
+                    Optional.empty(),
+                    storageSlot(address, 0),
+                    Optional.of(Bytes32.random(random)),
+                    storageSlot(address, 256),
+                    Optional.empty(),
+                    storageSlot(address, 257),
+                    Optional.empty(),
+                    storageSlot(address, 384),
+                    Optional.of(Bytes32.random(random))),
+            // Both sides end empty.
+            address ->
+                Map.of(
+                    TrieKeyDerivation.getTreeKeyForBasicData(address),
+                    Optional.empty(),
+                    TrieKeyDerivation.getTreeKeyForCodeHash(address),
+                    Optional.empty(),
+                    storageSlot(address, 0),
+                    Optional.empty(),
+                    storageSlot(address, 256),
+                    Optional.empty(),
+                    storageSlot(address, 257),
+                    Optional.empty(),
+                    storageSlot(address, 384),
+                    Optional.empty()));
+
+    for (int c = 0; c < batches.size(); c++) {
+      final NodeUpdaterMock parallelStore = new NodeUpdaterMock();
+      final NodeUpdaterMock sequentialStore = new NodeUpdaterMock();
+      final NodeLoaderMock parallelReader = new NodeLoaderMock(parallelStore);
+      final ParallelStoredPartitionedBinaryTrie parallel =
+          new ParallelStoredPartitionedBinaryTrie(parallelReader);
+      final StoredPartitionedBinaryTrie sequential =
+          new StoredPartitionedBinaryTrie(new NodeLoaderMock(sequentialStore));
+      final List<Bytes32> addresses = new ArrayList<>();
+      final Map<Bytes, Bytes32> expected = new HashMap<>();
+      for (int i = 0; i < 20; i++) {
+        final Bytes32 address = Bytes32.random(random);
+        addresses.add(address);
+        expected.put(TrieKeyDerivation.getTreeKeyForBasicData(address), Bytes32.random(random));
+        expected.put(TrieKeyDerivation.getTreeKeyForCodeHash(address), Bytes32.random(random));
+        expected.put(storageSlot(address, 256), Bytes32.random(random));
+        expected.put(storageSlot(address, 257), Bytes32.random(random));
+      }
+      expected.forEach(
+          (key, value) -> {
+            parallel.put(key, value);
+            sequential.put(key, value);
+          });
+      parallel.commit(parallelStore);
+      sequential.commit(sequentialStore);
+
+      // Half the accounts take the batch.
+      final Map<Bytes, Optional<Bytes32>> batch = new HashMap<>();
+      for (int i = 0; i < addresses.size(); i += 2) {
+        batch.putAll(batches.get(c).apply(addresses.get(i)));
+      }
+      batch.forEach(
+          (key, value) -> {
+            if (value.isPresent()) {
+              parallel.put(key, value.get());
+              sequential.put(key, value.get());
+              expected.put(key, value.get());
+            } else {
+              parallel.remove(key);
+              sequential.remove(key);
+              expected.remove(key);
+            }
+          });
+      parallel.commit(parallelStore);
+      sequential.commit(sequentialStore);
+
+      assertThat(parallel.getRootHash()).as("case %d", c).isEqualTo(sequential.getRootHash());
+      assertThat(parallelStore.storage).as("case %d", c).isEqualTo(sequentialStore.storage);
+      final ParallelStoredPartitionedBinaryTrie reloaded =
+          new ParallelStoredPartitionedBinaryTrie(parallelReader, parallel.getRootHash());
+      expected.forEach((key, value) -> assertThat(reloaded.get(key)).contains(value));
+      for (final Bytes key : batch.keySet()) {
+        if (!expected.containsKey(key)) {
+          assertThat(reloaded.get(key)).as("case %d", c).isEmpty();
+        }
+      }
+    }
+  }
+
+  private static Bytes storageSlot(final Bytes32 address, final long slot) {
+    return TrieKeyDerivation.getTreeKeyForStorageSlot(address, UInt256.valueOf(slot));
   }
 
   @Test

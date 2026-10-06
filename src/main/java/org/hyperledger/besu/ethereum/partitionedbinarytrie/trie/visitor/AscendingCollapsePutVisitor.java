@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.visitor;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.TrieNodeCodec;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.bytes.ByteTrieOps;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKey;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.StoredTrieNodeFactory;
@@ -44,7 +45,8 @@ import org.apache.tuweni.bytes.Bytes32;
  * <p>With a {@link NodeUpdater}, each completed subtree is first committed at its storage location
  * (the bit path from the root, as {@link CommitVisitor} derives it), so the resulting store is the
  * one {@link org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.StoredPartitionedBinaryTrie}
- * would write for the same entries. Without one, collapse only hashes.
+ * would write for the same entries; a stem stays in memory until complete. Without one, collapse
+ * only hashes.
  *
  * <p>Node-split / put rules match {@link PutVisitor}; the only additions are left-sibling collapse
  * and rejection of out-of-order (leftward) inserts, duplicate keys, and inserts under already
@@ -141,6 +143,10 @@ public final class AscendingCollapsePutVisitor extends PutVisitor {
       // computed if something asks for it.
       return collapseFactory.wrapStored(
           () -> childLocation(key, split, side), Bytes32.wrap(node.merkleHashBytes()));
+    }
+    if (split >= TrieNodeCodec.stemBits(key.length())) {
+      // Inside the key's stem: stored whole once the stem is complete.
+      return node;
     }
     final Bytes location = childLocation(key, split, side);
     node.commit(location, nodeUpdater.get());

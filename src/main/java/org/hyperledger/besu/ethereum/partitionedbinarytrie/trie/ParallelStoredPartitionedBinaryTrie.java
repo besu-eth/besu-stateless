@@ -14,8 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.trie;
 
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.codec.TrieNodeCodec;
-import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieConstants;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.keys.TrieKey;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.factory.StoredTrieNodeFactory;
 import org.hyperledger.besu.ethereum.partitionedbinarytrie.trie.node.BranchNode;
@@ -137,56 +135,40 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
     pendingUpdates.put(Bytes.wrap(Arrays.copyOf(key, keyLen)), new Direct(Optional.empty()));
   }
 
+  /**
+   * Applies the pending updates, then commits the final trie in parallel: only it shows where each
+   * stem starts.
+   */
   @Override
   public void commit(final NodeUpdater nodeUpdater) {
-    flushCodeRefCounts(nodeUpdater);
-    if (pendingUpdates.isEmpty()) {
-      persistDirtyRoot(nodeUpdater);
-      return;
+    processPendingUpdates();
+    if (!root.isClean()) {
+      final CommitCache commitCache = new CommitCache();
+      final CommitVisitor commitVisitor = new ParallelCommitVisitor(commitCache);
+      forkJoinPool.invoke(ForkJoinTask.adapt(() -> root.accept(Bytes.EMPTY, commitVisitor)));
+      commitCache.flushTo(nodeUpdater);
     }
-    processPendingUpdates(Optional.of(nodeUpdater));
+    // Code reference counts, and the root location when the trie became empty.
+    super.commit(nodeUpdater);
   }
 
   @Override
   public Bytes32 getRootHash() {
-    if (pendingUpdates.isEmpty()) {
-      return super.getRootHash();
-    }
-    processPendingUpdates(Optional.empty());
+    processPendingUpdates();
     return super.getRootHash();
   }
 
-  private void processPendingUpdates(final Optional<NodeUpdater> maybeNodeUpdater) {
+  private void processPendingUpdates() {
     if (pendingUpdates.isEmpty()) {
       return;
     }
-
     try {
       this.root = loadNode(root);
-
       final List<UpdateEntry> entries = new ArrayList<>();
       pendingUpdates.forEach(
           (keyBytes, update) ->
               entries.add(update.toEntry(keyBytes.toArrayUnsafe(), keyBytes.size())));
-
-      final CommitCache commitCache = new CommitCache();
-      final boolean shouldCommit = maybeNodeUpdater.isPresent();
-
-      this.root =
-          forkJoinPool.invoke(
-              ForkJoinTask.adapt(
-                  () ->
-                      processNode(
-                          root,
-                          Bytes.EMPTY,
-                          0,
-                          entries,
-                          shouldCommit ? Optional.of(commitCache) : Optional.empty())));
-
-      if (maybeNodeUpdater.isPresent()) {
-        commitCache.flushTo(maybeNodeUpdater.get());
-        storeAndResetRoot(maybeNodeUpdater.get());
-      }
+      this.root = forkJoinPool.invoke(ForkJoinTask.adapt(() -> processNode(root, 0, entries)));
     } finally {
       pendingUpdates.clear();
     }
@@ -198,31 +180,23 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
    * visitor-based updates.
    */
   private TrieNode processNode(
-      final TrieNode node,
-      final Bytes location,
-      final int depth,
-      final List<UpdateEntry> updates,
-      final Optional<CommitCache> maybeCommitCache) {
+      final TrieNode node, final int depth, final List<UpdateEntry> updates) {
 
     final TrieNode loadedNode = loadNode(node);
     if (loadedNode instanceof BranchNode branch) {
-      return handleBranchNode(branch, location, depth, updates, maybeCommitCache);
+      return handleBranchNode(branch, depth, updates);
     }
     if (loadedNode instanceof LeafNode leaf) {
-      return handleLeafNode(leaf, location, depth, updates, maybeCommitCache);
+      return handleLeafNode(leaf, depth, updates);
     }
     if (loadedNode instanceof EmptyTrieNode) {
-      return handleEmptyNode(location, depth, updates, maybeCommitCache);
+      return handleEmptyNode(depth, updates);
     }
-    return applyUpdatesSequentially(loadedNode, location, depth, updates, maybeCommitCache);
+    return applyUpdatesSequentially(loadedNode, depth, updates);
   }
 
   private TrieNode handleBranchNode(
-      final BranchNode branchNode,
-      final Bytes location,
-      final int depth,
-      final List<UpdateEntry> updates,
-      final Optional<CommitCache> maybeCommitCache) {
+      final BranchNode branchNode, final int depth, final List<UpdateEntry> updates) {
 
     final byte[] prefixBits = branchNode.prefixBits();
     final int prefixLen = branchNode.prefixLength();
@@ -231,22 +205,12 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
     // diverges or runs out of key bits before the prefix ends).
     final int divergenceIndex = findDivergenceInPrefix(updates, depth, prefixBits, prefixLen);
     if (divergenceIndex < prefixLen) {
-      // At least one update exits the compressed prefix: the branch must be restructured
-      // before its children can be touched. With multiple updates we rebuild the prefix
-      // chain in parallel-friendly form; with a single update there is no fork to model,
-      // so the sequential visitor path is cheaper.
+      // An update leaves the prefix. A single one goes through the sequential visitor.
       if (updates.size() > 1) {
-        return expandBranchPrefixToDivergence(
-            branchNode,
-            prefixBits,
-            prefixLen,
-            divergenceIndex,
-            location,
-            depth,
-            updates,
-            maybeCommitCache);
+        return splitPrefixAtDivergence(
+            branchNode, prefixBits, prefixLen, divergenceIndex, depth, updates);
       }
-      return applyUpdatesSequentially(branchNode, location, depth, updates, maybeCommitCache);
+      return applyUpdatesSequentially(branchNode, depth, updates);
     }
 
     // Absolute bit position where the compressed prefix ends: the next key bit selects
@@ -272,9 +236,6 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
     final boolean forkLeft = parallelize && childUpdates.left().size() > 1;
     final boolean forkRight = parallelize && childUpdates.right().size() > 1;
 
-    // Precompute the per-child context once: each value feeds two of the four calls below.
-    final Bytes leftLocation = TrieNodeCodec.childLocation(location, prefixBits, prefixLen, 0);
-    final Bytes rightLocation = TrieNodeCodec.childLocation(location, prefixBits, prefixLen, 1);
     final int childDepth = splitDepth + 1;
     final List<ForkJoinTask<Void>> forkJoinTasks = new ArrayList<>();
 
@@ -283,48 +244,20 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
     // sequential side, deadlocking the worker pool.
     if (!childUpdates.left().isEmpty() && forkLeft) {
       processBranchChild(
-          branchWrapper,
-          false,
-          childUpdates.left(),
-          leftLocation,
-          childDepth,
-          maybeCommitCache,
-          true,
-          forkJoinTasks);
+          branchWrapper, false, childUpdates.left(), childDepth, true, forkJoinTasks);
     }
     if (!childUpdates.right().isEmpty() && forkRight) {
       processBranchChild(
-          branchWrapper,
-          true,
-          childUpdates.right(),
-          rightLocation,
-          childDepth,
-          maybeCommitCache,
-          true,
-          forkJoinTasks);
+          branchWrapper, true, childUpdates.right(), childDepth, true, forkJoinTasks);
     }
 
     if (!childUpdates.left().isEmpty() && !forkLeft) {
       processBranchChild(
-          branchWrapper,
-          false,
-          childUpdates.left(),
-          leftLocation,
-          childDepth,
-          maybeCommitCache,
-          false,
-          forkJoinTasks);
+          branchWrapper, false, childUpdates.left(), childDepth, false, forkJoinTasks);
     }
     if (!childUpdates.right().isEmpty() && !forkRight) {
       processBranchChild(
-          branchWrapper,
-          true,
-          childUpdates.right(),
-          rightLocation,
-          childDepth,
-          maybeCommitCache,
-          false,
-          forkJoinTasks);
+          branchWrapper, true, childUpdates.right(), childDepth, false, forkJoinTasks);
     }
 
     // Wait for every forked side before reassembling the branch, so both children are final.
@@ -333,68 +266,35 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
     // Replace the branch's children with their updated versions; collapse the node if one
     // side became empty (the remaining side is hoisted up by replaceChild).
     final TrieNode newBranch = branchWrapper.applyUpdates();
-    // Persist via the commit cache when this is the root batch, otherwise just assert the
-    // hash is materialized for the parent's commit.
-    commitOrHashNode(newBranch, location, maybeCommitCache);
+    // Hash here, so that both sides of a fork are hashed in parallel.
+    newBranch.merkleHashBytes();
     return newBranch;
   }
 
   /**
-   * Rebuilds a branch whose prefix no longer matches all updates by inserting empty prefix-less
-   * branches along the diverging portion of the original prefix, then recursing via {@link
-   * #processNode}.
-   *
-   * <p>The original compressed prefix is split into three parts at {@code divergenceIndex}: the
-   * bits before it (shared by every update), the diverging bit itself (which routes the survivor
-   * onto one side), and the bits after it (kept on the survivor so its subtree is unchanged). The
-   * survivor is the original branch with its prefix trimmed to the remaining suffix; we then wrap
-   * it outward, first at the diverging bit and then backwards through the shared prefix bits, to
-   * reconstruct an equivalent un-compressed chain that {@link #processNode} can split again.
-   *
-   * @param divergenceIndex position within {@code prefixBits} where at least one update diverges;
-   *     must be {@code < prefixLen}
+   * Splits the prefix of {@code branchNode} where the first update leaves it, the original branch
+   * on one side and the diverging updates on the other, then processes the result.
    */
-  private TrieNode expandBranchPrefixToDivergence(
+  private TrieNode splitPrefixAtDivergence(
       final BranchNode branchNode,
       final byte[] prefixBits,
       final int prefixLen,
       final int divergenceIndex,
-      final Bytes location,
       final int depth,
-      final List<UpdateEntry> updates,
-      final Optional<CommitCache> maybeCommitCache) {
-
-    // Split the compressed prefix: shared head, the diverging bit, and the tail carried by the
-    // survivor branch.
-    final byte[] commonPrefix = Arrays.copyOfRange(prefixBits, 0, divergenceIndex);
-    final byte divergingBit = prefixBits[divergenceIndex];
-    final byte[] remainingSuffix = Arrays.copyOfRange(prefixBits, divergenceIndex + 1, prefixLen);
-
-    // Survivor keeps the original children under the trimmed suffix, so nothing below changes.
-    // Keep stored proxies as-is; handleBranchNode loads only the side that receives updates.
+      final List<UpdateEntry> updates) {
     final TrieNode continuation =
         new BranchNode(
-            remainingSuffix,
-            remainingSuffix.length,
+            Arrays.copyOfRange(prefixBits, divergenceIndex + 1, prefixLen),
+            prefixLen - divergenceIndex - 1,
             branchNode.leftChild(),
             branchNode.rightChild(),
             false);
-
-    // Rebuild the chain from the survivor outward: wrap at the diverging bit first, then wrap
-    // backwards through the shared prefix so the outermost node corresponds to depth.
-    TrieNode currentNode = wrapSingleChildBranch(continuation, divergingBit);
-    for (int i = commonPrefix.length - 1; i >= 0; i--) {
-      currentNode = wrapSingleChildBranch(currentNode, commonPrefix[i]);
-    }
-
-    return processNode(currentNode, location, depth, updates, maybeCommitCache);
-  }
-
-  /** Builds a prefix-less branch holding {@code child} on the side indicated by {@code bit}. */
-  private static BranchNode wrapSingleChildBranch(final TrieNode child, final byte bit) {
-    return bit == 0
-        ? new BranchNode(new byte[0], 0, child, TrieNode.empty(), false)
-        : new BranchNode(new byte[0], 0, TrieNode.empty(), child, false);
+    final byte[] commonPrefix = Arrays.copyOf(prefixBits, divergenceIndex);
+    final BranchNode split =
+        prefixBits[divergenceIndex] == 0
+            ? new BranchNode(commonPrefix, divergenceIndex, continuation, TrieNode.empty(), false)
+            : new BranchNode(commonPrefix, divergenceIndex, TrieNode.empty(), continuation, false);
+    return handleBranchNode(split, depth, updates);
   }
 
   /**
@@ -435,29 +335,21 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
    * and recurses via {@link #handleBranchNode}; otherwise applies updates sequentially.
    */
   private TrieNode handleLeafNode(
-      final LeafNode leaf,
-      final Bytes location,
-      final int depth,
-      final List<UpdateEntry> updates,
-      final Optional<CommitCache> maybeCommitCache) {
+      final LeafNode leaf, final int depth, final List<UpdateEntry> updates) {
     if (updates.size() > 1 && updatesSpanBothSides(updates, depth)) {
       final BranchNode branch = buildBranchFromLeaf(leaf, depth);
-      return handleBranchNode(branch, location, depth, updates, maybeCommitCache);
+      return handleBranchNode(branch, depth, updates);
     }
-    return applyUpdatesSequentially(leaf, location, depth, updates, maybeCommitCache);
+    return applyUpdatesSequentially(leaf, depth, updates);
   }
 
   /** Empty-node counterpart to {@link #handleLeafNode}. */
-  private TrieNode handleEmptyNode(
-      final Bytes location,
-      final int depth,
-      final List<UpdateEntry> updates,
-      final Optional<CommitCache> maybeCommitCache) {
+  private TrieNode handleEmptyNode(final int depth, final List<UpdateEntry> updates) {
     if (updates.size() > 1 && updatesSpanBothSides(updates, depth)) {
       final BranchNode branch = buildEmptyBranch();
-      return handleBranchNode(branch, location, depth, updates, maybeCommitCache);
+      return handleBranchNode(branch, depth, updates);
     }
-    return applyUpdatesSequentially(TrieNode.empty(), location, depth, updates, maybeCommitCache);
+    return applyUpdatesSequentially(TrieNode.empty(), depth, updates);
   }
 
   private BranchNode buildBranchFromLeaf(final LeafNode leaf, final int depth) {
@@ -489,9 +381,7 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
       final BranchWrapper branchWrapper,
       final boolean goRight,
       final List<UpdateEntry> updates,
-      final Bytes childLocation,
       final int childDepth,
-      final Optional<CommitCache> maybeCommitCache,
       final boolean fork,
       final List<ForkJoinTask<Void>> forkJoinTasks) {
 
@@ -499,8 +389,7 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
         () -> {
           final TrieNode currentChild =
               goRight ? branchWrapper.getRightChild() : branchWrapper.getLeftChild();
-          final TrieNode updatedChild =
-              processNode(currentChild, childLocation, childDepth, updates, maybeCommitCache);
+          final TrieNode updatedChild = processNode(currentChild, childDepth, updates);
           branchWrapper.setChild(goRight, updatedChild);
         };
     if (fork) {
@@ -554,27 +443,13 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
     }
   }
 
-  /** Commits the node when a {@link CommitCache} is present, otherwise just asserts its hash. */
-  private void commitOrHashNode(
-      final TrieNode node, final Bytes location, final Optional<CommitCache> maybeCommitCache) {
-    if (maybeCommitCache.isPresent()) {
-      node.accept(location, new CommitVisitor(maybeCommitCache.get()));
-    } else {
-      Objects.requireNonNull(node.merkleHashBytes());
-    }
-  }
-
   /**
    * Non-parallel fallback used when a node cannot be split across multiple updates (e.g. a single
    * update, or a prefix-divergence case with no fork to model). Applies each update's matching
    * {@link PathNodeVisitor} in order, then commits or hashes the result.
    */
   private TrieNode applyUpdatesSequentially(
-      final TrieNode node,
-      final Bytes location,
-      final int depth,
-      final List<UpdateEntry> updates,
-      final Optional<CommitCache> maybeCommitCache) {
+      final TrieNode node, final int depth, final List<UpdateEntry> updates) {
 
     TrieNode updatedNode = node;
     for (final UpdateEntry entry : updates) {
@@ -587,32 +462,8 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
       updatedNode = updatedNode.accept(visitor, entry.trieKey(), depth);
     }
 
-    commitOrHashNode(updatedNode, location, maybeCommitCache);
+    updatedNode.merkleHashBytes();
     return updatedNode;
-  }
-
-  /**
-   * Writes dirty nodes after updates were already applied without a {@link NodeUpdater} (for
-   * example by {@link #getRootHash()}). {@link #processPendingUpdates} is a no-op when {@code
-   * pendingUpdates} is empty, so commit would otherwise persist nothing.
-   */
-  private void persistDirtyRoot(final NodeUpdater nodeUpdater) {
-    this.root = loadNode(root);
-    final CommitCache commitCache = new CommitCache();
-    root.accept(Bytes.EMPTY, new CommitVisitor(commitCache));
-    commitCache.flushTo(nodeUpdater);
-    storeAndResetRoot(nodeUpdater);
-  }
-
-  /** Stores the root under the empty location and resets it to a clean stored proxy. */
-  private void storeAndResetRoot(final NodeUpdater nodeUpdater) {
-    final Bytes32 rootHash = Bytes32.wrap(root.merkleHashBytes());
-    nodeUpdater.store(Bytes.EMPTY, rootHash, root.encode());
-
-    this.root =
-        rootHash.equals(TrieConstants.EMPTY_TRIE_ROOT)
-            ? TrieNode.empty()
-            : nodeFactory.wrapStored(Bytes.EMPTY, rootHash);
   }
 
   /** Materializes a {@link StoredTrieNode}; other nodes are returned unchanged. */
@@ -734,6 +585,31 @@ public class ParallelStoredPartitionedBinaryTrie extends StoredPartitionedBinary
     }
   }
 
+  /** Commits the two dirty sides of a branch concurrently. */
+  private static final class ParallelCommitVisitor extends CommitVisitor {
+
+    ParallelCommitVisitor(final NodeUpdater nodeUpdater) {
+      super(nodeUpdater);
+    }
+
+    @Override
+    protected void commitChildren(
+        final TrieNode left,
+        final Bytes leftLocation,
+        final TrieNode right,
+        final Bytes rightLocation) {
+      if (left.isClean() || right.isClean()) {
+        super.commitChildren(left, leftLocation, right, rightLocation);
+        return;
+      }
+      final ForkJoinTask<?> leftCommit =
+          ForkJoinTask.adapt(() -> left.accept(leftLocation, this)).fork();
+      right.accept(rightLocation, this);
+      leftCommit.join();
+    }
+  }
+
+  /** Thread-safe store for the parallel commit, flushed to the real updater afterwards. */
   private static final class CommitCache implements NodeUpdater {
     private final Map<Bytes, NodeData> cache = new ConcurrentHashMap<>();
 

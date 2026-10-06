@@ -25,7 +25,7 @@ import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 
-/** In-memory leaf node holding a single key-value pair. */
+/** In-memory leaf node holding a single key-value pair, stored with the rest of its stem. */
 public final class LeafNode extends TrieNode {
 
   private final byte[] key;
