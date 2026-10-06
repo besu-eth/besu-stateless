@@ -37,4 +37,5 @@ reproduction steps, affected versions, and any known active exploitation.
 - We do not publish vulnerability details before a fix is available in a released version.
 
 For more detail on how the security team handles reports, see our
-[Security Policy](https://github.com/besu-eth/besu/wiki/Security-Policy).
+[Security Policy](https://github.com/besu-eth/besu/wiki/Security-Policy) and the
+[Defect Response page](https://wiki.hyperledger.org/display/SEC/Defect+Response).
