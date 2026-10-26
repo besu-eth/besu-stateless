@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.partitionedbinarytrie.internal.hash;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.Random;
 
@@ -91,6 +92,47 @@ class Blake3HasherTest {
                     Bytes.wrap(a, 1, 2),
                     Bytes.wrap(b, 0, 32),
                     Bytes.wrap(c, 50, 1050))));
+  }
+
+  @Test
+  void taggedOverloadsMatchBouncyCastleOnBothSidesOfTheChunkLimit() {
+    final Random random = new Random(9);
+    final byte[] a = randomBytes(random, 600);
+    final byte[] b = randomBytes(random, 600);
+    final byte[] c = randomBytes(random, 600);
+    // 1 + 511 + 512 = 1024 bytes stays in one chunk; one more byte goes to Commons Codec.
+    for (final int aLen : new int[] {511, 512}) {
+      assertThat(Bytes32.wrap(Blake3Hasher.hash((byte) 1, a, 0, aLen, b, 0, 512)))
+          .as("%d bytes", 1 + aLen + 512)
+          .isEqualTo(
+              referenceBlake3(
+                  Bytes.concatenate(Bytes.of(1), Bytes.wrap(a, 0, aLen), Bytes.wrap(b, 0, 512))));
+    }
+    for (final int aLen : new int[] {341, 342}) {
+      assertThat(Bytes32.wrap(Blake3Hasher.hash((byte) 2, a, 0, aLen, b, 0, 341, c, 0, 341)))
+          .as("%d bytes", 1 + aLen + 682)
+          .isEqualTo(
+              referenceBlake3(
+                  Bytes.concatenate(
+                      Bytes.of(2),
+                      Bytes.wrap(a, 0, aLen),
+                      Bytes.wrap(b, 0, 341),
+                      Bytes.wrap(c, 0, 341))));
+    }
+  }
+
+  @Test
+  void aHashThatThrowsDoesNotChangeTheNextOne() {
+    final Random random = new Random(11);
+    final byte[] key = randomBytes(random, 34);
+    final byte[] value = randomBytes(random, 32);
+    // The value slice runs past its array, after the tag and the key were hashed.
+    assertThatThrownBy(() -> Blake3Hasher.hash((byte) 0, key, 0, 34, value, 8, 32))
+        .isInstanceOf(IndexOutOfBoundsException.class);
+
+    assertThat(Bytes32.wrap(Blake3Hasher.hash((byte) 0, key, 0, 34, value, 0, 32)))
+        .isEqualTo(
+            referenceBlake3(Bytes.concatenate(Bytes.of(0), Bytes.wrap(key), Bytes.wrap(value))));
   }
 
   @Test

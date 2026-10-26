@@ -19,12 +19,16 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
 /**
- * Thread-local BLAKE3 hashing (32-byte output) for trie keys and nodes, on Apache Commons Codec.
+ * Thread-local BLAKE3 hashing (32-byte output) for trie keys and nodes.
  *
- * <p>The tagged overloads hash {@code tag} followed by the given slices. Not part of the public
- * API.
+ * <p>Inputs of at most one chunk, which covers every PBT key and node, go to {@link
+ * Blake3SingleChunk}; longer ones to Apache Commons Codec. The tagged overloads hash {@code tag}
+ * followed by the given slices. Not part of the public API.
  */
 public final class Blake3Hasher {
+
+  private static final ThreadLocal<Blake3SingleChunk> SINGLE_CHUNK =
+      ThreadLocal.withInitial(Blake3SingleChunk::new);
 
   private static final ThreadLocal<Blake3> BLAKE3 = ThreadLocal.withInitial(Blake3::initHash);
 
@@ -41,6 +45,11 @@ public final class Blake3Hasher {
 
   /** Hash {@code data[off, off + len)}, returning an owned 32-byte digest. */
   public static byte[] hashRaw(final byte[] data, final int off, final int len) {
+    if (len <= Blake3SingleChunk.MAX_INPUT) {
+      final Blake3SingleChunk digest = startSingleChunk();
+      digest.update(data, off, len);
+      return finish(digest);
+    }
     final Blake3 blake3 = start();
     blake3.update(data, off, len);
     return finish(blake3);
@@ -55,6 +64,13 @@ public final class Blake3Hasher {
       final byte[] b,
       final int bOff,
       final int bLen) {
+    if (1 + aLen + bLen <= Blake3SingleChunk.MAX_INPUT) {
+      final Blake3SingleChunk digest = startSingleChunk();
+      digest.update(tag);
+      digest.update(a, aOff, aLen);
+      digest.update(b, bOff, bLen);
+      return finish(digest);
+    }
     final Blake3 blake3 = startTagged(tag);
     blake3.update(a, aOff, aLen);
     blake3.update(b, bOff, bLen);
@@ -73,11 +89,32 @@ public final class Blake3Hasher {
       final byte[] c,
       final int cOff,
       final int cLen) {
+    if (1 + aLen + bLen + cLen <= Blake3SingleChunk.MAX_INPUT) {
+      final Blake3SingleChunk digest = startSingleChunk();
+      digest.update(tag);
+      digest.update(a, aOff, aLen);
+      digest.update(b, bOff, bLen);
+      digest.update(c, cOff, cLen);
+      return finish(digest);
+    }
     final Blake3 blake3 = startTagged(tag);
     blake3.update(a, aOff, aLen);
     blake3.update(b, bOff, bLen);
     blake3.update(c, cOff, cLen);
     return finish(blake3);
+  }
+
+  /** Reset first: a hash that threw midway must not leak into the next one. */
+  private static Blake3SingleChunk startSingleChunk() {
+    final Blake3SingleChunk digest = SINGLE_CHUNK.get();
+    digest.reset();
+    return digest;
+  }
+
+  private static byte[] finish(final Blake3SingleChunk digest) {
+    final byte[] out = new byte[32];
+    digest.doFinal(out, 0);
+    return out;
   }
 
   private static Blake3 start() {
